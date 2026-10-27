@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="menu_shortcuts">Ярлыки</string>
+    <string name="menu_actions">Действия</string>
+    <string name="action_app_info">О приложении</string>
+    <string name="action_aliases">Алиасы</string>
+    <string name="action_remove">Убрать</string>
+    <string name="action_uninstall">Удалить</string>
+    <string name="action_add_to_home">На главный экран</string>
+    <string name="action_add_to_dock">В док</string>
+    <string name="action_widgets">Виджеты</string>
+    <string name="action_wallpaper_style">Обои и стиль</string>
+    <string name="action_settings">Настройки</string>
+
+    <string name="search_apps">Поиск приложений</string>
+    <string name="search_widgets">Поиск виджетов</string>
+    <string name="search_web">Искать в интернете</string>
+    <string name="search_no_results">Ничего не найдено</string>
+    <string name="work_profile">Рабочий профиль</string>
+
+    <string name="aliases_hint">Другие названия, по которым поиск найдёт приложение. Через запятую.</string>
+    <string name="aliases_placeholder">tg, телега</string>
+    <string name="save">Сохранить</string>
+    <string name="cancel">Отмена</string>
+
+    <string name="settings_themed_icons">Тематические значки</string>
+    <string name="settings_themed_icons_summary">Цвета из обоев для значков, которые это поддерживают</string>
+    <string name="settings_default_home">Главный экран по умолчанию</string>
+    <string name="settings_default_home_set">Foyer уже главный экран</string>
+    <string name="settings_default_home_unset">Нажмите, чтобы выбрать Foyer</string>
+    <string name="settings_footer">Foyer · сетка %1$d колонок · работает без сети</string>
+
+    <string name="make_default_home">Сделать Foyer главным экраном — без этого не работают ярлыки приложений</string>
+    <string name="widget_unavailable">Виджет недоступен</string>
+    <string name="pinned_to_home">«%1$s» на главном экране</string>
+    <string name="cannot_open_app">Не удалось открыть «%1$s»</string>
+    <string name="shortcut_unavailable">Ярлык недоступен</string>
+    <string name="wallpaper_chooser">Обои</string>
+    <string name="no_app_to_open">Нечем открыть</string>
+</resources>

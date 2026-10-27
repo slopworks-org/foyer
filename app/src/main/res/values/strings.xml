@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Foyer</string>
+
+    <string name="menu_shortcuts">Shortcuts</string>
+    <string name="menu_actions">Actions</string>
+    <string name="action_app_info">App info</string>
+    <string name="action_aliases">Aliases</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_uninstall">Uninstall</string>
+    <string name="action_add_to_home">Add to home</string>
+    <string name="action_add_to_dock">Add to dock</string>
+    <string name="action_widgets">Widgets</string>
+    <string name="action_wallpaper_style">Wallpaper &amp; style</string>
+    <string name="action_settings">Settings</string>
+
+    <string name="search_apps">Search apps</string>
+    <string name="search_widgets">Search widgets</string>
+    <string name="search_web">Search the web</string>
+    <string name="search_no_results">Nothing found</string>
+    <string name="work_profile">Work profile</string>
+
+    <string name="aliases_hint">Other names search will find this app by. Separate them with commas.</string>
+    <string name="aliases_placeholder">tg, gram</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+
+    <string name="settings_themed_icons">Themed icons</string>
+    <string name="settings_themed_icons_summary">Wallpaper colors for icons that support them</string>
+    <string name="settings_default_home">Default home app</string>
+    <string name="settings_default_home_set">Foyer is already the home app</string>
+    <string name="settings_default_home_unset">Tap to choose Foyer</string>
+    <string name="settings_footer">Foyer · %1$d-column grid · works offline</string>
+
+    <string name="make_default_home">Make Foyer the home app: app shortcuts only work then</string>
+    <string name="widget_unavailable">Widget unavailable</string>
+    <string name="pinned_to_home">“%1$s” added to home</string>
+    <string name="cannot_open_app">Can’t open “%1$s”</string>
+    <string name="shortcut_unavailable">Shortcut unavailable</string>
+    <string name="wallpaper_chooser">Wallpaper</string>
+    <string name="no_app_to_open">No app can open this</string>
+</resources>
