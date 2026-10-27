@@ -1,0 +1,6 @@
+# Runs the CI gate before every commit. `lefthook install` sets the hook up;
+# `LEFTHOOK=0 git commit` skips it once.
+pre-commit:
+  jobs:
+    - name: check
+      run: ./gradlew check -q
