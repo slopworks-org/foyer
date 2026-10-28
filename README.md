@@ -3,6 +3,21 @@
 A personal Android launcher. The home screen is a place, not a list: everything stays
 where you put it.
 
+<table>
+  <tr>
+    <td><img src="docs/screenshots/home.jpg" alt="Home screen: apps and widgets in a grid with gaps, the dock with a search bar below"></td>
+    <td><img src="docs/screenshots/search.jpg" alt="Search for &quot;youtbe&quot; finds YouTube despite the typo"></td>
+    <td><img src="docs/screenshots/menu.jpg" alt="Long-press menu of Clock with its shortcuts and a folded Actions section"></td>
+    <td><img src="docs/screenshots/widgets.jpg" alt="Widget picker grouped by app, with its own search"></td>
+  </tr>
+  <tr>
+    <td align="center">Home</td>
+    <td align="center">Search forgives typos</td>
+    <td align="center">Shortcuts and actions</td>
+    <td align="center">Widget picker</td>
+  </tr>
+</table>
+
 - **Feed**: one vertical, continuously scrolling grid (5 columns) of apps, shortcuts and
   widgets. Every item has explicit cells, so removing or uninstalling one never shifts
   the rest. Nothing is sorted, suggested or added automatically; the first run puts only
