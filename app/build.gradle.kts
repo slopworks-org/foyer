@@ -13,7 +13,20 @@ android {
         minSdk = 31
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1"
+        versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        // CI sets these for release builds; without them a local release build uses the debug key.
+        val keystore = System.getenv("FOYER_KEYSTORE")
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("FOYER_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("FOYER_KEY_ALIAS")
+                keyPassword = System.getenv("FOYER_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -21,8 +34,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            // Personal sideloaded build: sign with the debug key so `installRelease` just works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

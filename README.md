@@ -25,13 +25,12 @@ An Android home screen that stays where you put it.
 
 ## Install
 
-Foyer needs Android 12 or later. There is no store release yet, so build it from source:
+Foyer needs Android 12 or later.
 
-```sh
-./gradlew :app:installRelease
-```
+1. Download the APK from the [latest release](https://github.com/slopworks-org/foyer/releases/latest) and install it.
+2. Open Settings > Apps > Default apps > Home app and select Foyer.
 
-Then open Settings > Apps > Default apps > Home app and select Foyer.
+To build from source, run `./gradlew :app:installRelease`. A local build is signed with your debug key, so it cannot update a release build.
 
 <details>
 <summary>Gestures</summary>

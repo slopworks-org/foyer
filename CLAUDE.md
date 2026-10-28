@@ -22,6 +22,18 @@ the home app with
 `lefthook install` sets up a pre-commit hook that runs `./gradlew check`
 (`lefthook.yml`). `LEFTHOOK=0 git commit` skips it once.
 
+### Releases
+
+1. In a PR, raise `versionName` and `versionCode` in `app/build.gradle.kts`.
+2. After the merge, tag `main` with `v<versionName>` and push the tag.
+3. `.github/workflows/release.yml` builds the APK, signs it with the release
+   key from the repository secrets and publishes a GitHub release.
+
+The secrets are `FOYER_KEYSTORE_BASE64`, `FOYER_KEYSTORE_PASSWORD` and
+`FOYER_KEY_ALIAS`. The keystore is PKCS12, so the key password is the store
+password. Never replace the key: Android does not install an update signed
+with a different key.
+
 ### Layout
 
 - `search/`: plain JVM module, no Android dependencies. `SearchIndex` is a pure
