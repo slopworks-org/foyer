@@ -4,19 +4,20 @@ An Android home screen that stays where you put it.
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/home.jpg" alt="Home screen: apps and widgets in a grid with gaps, the dock with a search bar below"></td>
+    <td><img src="docs/screenshots/feed.gif" alt="The home feed scrolls down past the first screen to more widgets and back up"></td>
     <td><img src="docs/screenshots/search.jpg" alt="Search for &quot;youtbe&quot; finds YouTube despite the typo"></td>
     <td><img src="docs/screenshots/menu.jpg" alt="Long-press menu of Clock with its shortcuts and a folded Actions section"></td>
     <td><img src="docs/screenshots/widgets.jpg" alt="Widget picker grouped by app, with its own search"></td>
   </tr>
   <tr>
-    <td align="center">Home</td>
+    <td align="center">Scrolling feed</td>
     <td align="center">Search with a typo</td>
     <td align="center">Shortcuts</td>
     <td align="center">Widgets</td>
   </tr>
 </table>
 
+- Home is one long feed of apps and widgets. Scroll it up and down like a web page.
 - Apps and widgets stay in the cell you put them in. Foyer never sorts, suggests or adds anything.
 - Pull up the dock and type. Search finds the app with typos, the wrong keyboard layout or a Russian spelling.
 - Foyer has no internet permission, no account and no tracking.
