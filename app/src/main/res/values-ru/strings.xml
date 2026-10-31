@@ -46,4 +46,7 @@
     <string name="folder_enlarge">Увеличить папку</string>
     <string name="folder_shrink">Уменьшить папку</string>
     <string name="folder_drop_failed">Не удалось переместить приложение. Возможно, папка заполнена или уже содержит его.</string>
+    <string name="folder_earlier">Переместить раньше</string>
+    <string name="folder_later">Переместить позже</string>
+    <string name="folder_move_to">Переместить в %1$s</string>
 </resources>

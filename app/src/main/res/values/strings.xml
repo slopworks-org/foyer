@@ -48,4 +48,7 @@
     <string name="folder_enlarge">Enlarge folder</string>
     <string name="folder_shrink">Shrink folder</string>
     <string name="folder_drop_failed">Cannot move this app here. The folder may be full or already contain it.</string>
+    <string name="folder_earlier">Move earlier</string>
+    <string name="folder_later">Move later</string>
+    <string name="folder_move_to">Move to %1$s</string>
 </resources>

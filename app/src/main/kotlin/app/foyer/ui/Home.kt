@@ -53,6 +53,9 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -472,7 +475,8 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
             onDragCancel = state::cancelDrag,
         )
     }
-    Box(modifier.itemGestures(callbacks) { pressed = it }, contentAlignment = Alignment.Center) {
+    val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
+    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty() }, contentAlignment = Alignment.Center) {
         Box(Modifier.scale(scale)) {
             if (content is ShortcutContent) ShortcutIcon(state, shortcut, app, iconSize)
             else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer { alpha = if (app == null) 0.35f else 1f })

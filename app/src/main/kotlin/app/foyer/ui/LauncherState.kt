@@ -520,6 +520,21 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
     }
 
+    fun accessibleTransfer(key: app.foyer.data.AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,
+                           targetFolder: Long? = null, index: Int = Int.MAX_VALUE, toDock: Boolean = false) {
+        scope.launch {
+            val missing = graph.apps.missingFolderApps(listOf(key))
+            graph.layout.edit { current ->
+                val (x, y) = if (toDock) ((0 until HomeLayout.DOCK_SLOTS).firstOrNull { current.dockSlotFree(it) } ?: -1) to 0
+                    else current.firstFree(1, 1)
+                val result = Edits.transferApp(current, key, sourceItem, sourceFolder, targetFolder, index, x, y, toDock,
+                    key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages)
+                if (result === current) folderFeedback = R.string.folder_drop_failed
+                result
+            }
+        }
+    }
+
     fun renameFolder(id: Long, name: String) = graph.layout.edit { current ->
         val folder = current.items.find { it.id == id }?.content as? FolderContent
         if (folder == null) current else Edits.folder(current, id, folder.copy(name = name))

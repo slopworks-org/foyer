@@ -47,10 +47,45 @@ internal fun SemanticsPropertyReceiver.folderActions(removeLabel: String, open: 
     customActions = listOf(CustomAccessibilityAction(removeLabel) { remove(); true })
 }
 
+/** TalkBack exposes the same atomic transfers without adding visible management controls. */
+@Composable
+internal fun folderTransferActions(state: LauncherState, key: AppKey, sourceItem: Long? = null, sourceFolder: Long? = null): List<CustomAccessibilityAction> {
+    val layout by state.graph.layout.layout.collectAsState()
+    val resources = androidx.compose.ui.platform.LocalResources.current
+    val actions = mutableListOf<CustomAccessibilityAction>()
+    if (sourceFolder != null) {
+        val members = (layout.items.find { it.id == sourceFolder }?.content as? FolderContent)?.apps.orEmpty()
+        val index = members.indexOf(key)
+        if (index > 0) actions += CustomAccessibilityAction(stringResource(R.string.folder_earlier)) {
+            state.accessibleTransfer(key, sourceFolder = sourceFolder, targetFolder = sourceFolder, index = index - 1); true
+        }
+        if (index in 0 until members.lastIndex) actions += CustomAccessibilityAction(stringResource(R.string.folder_later)) {
+            state.accessibleTransfer(key, sourceFolder = sourceFolder, targetFolder = sourceFolder, index = index + 2); true
+        }
+        actions += CustomAccessibilityAction(stringResource(R.string.action_add_to_home)) {
+            state.accessibleTransfer(key, sourceFolder = sourceFolder); true
+        }
+        actions += CustomAccessibilityAction(stringResource(R.string.action_add_to_dock)) {
+            state.accessibleTransfer(key, sourceFolder = sourceFolder, toDock = true); true
+        }
+    }
+    layout.feed.forEach { item ->
+        val folder = item.content as? FolderContent ?: return@forEach
+        if (item.id != sourceFolder && key !in folder.apps) {
+            val name = folder.name.ifEmpty { resources.getString(R.string.folder_default) }
+            actions += CustomAccessibilityAction(resources.getString(R.string.folder_move_to, name)) {
+                state.accessibleTransfer(key, sourceItem, sourceFolder, item.id); true
+            }
+        }
+    }
+    return actions
+}
+
 @Composable
 private fun memberModifier(state: LauncherState, id: Long, key: AppKey, overlay: Boolean = false): Modifier {
     val bounds = if (overlay) state.panelMemberBounds else state.memberBounds
     DisposableEffect(id, key) { onDispose { bounds.remove(id to key) } }
+    val accessibleActions = folderTransferActions(state, key, sourceFolder = id)
     val target = state.drag?.let { state.targetFor(it) } as? DropTarget.Folder
     val layout by state.graph.layout.layout.collectAsState()
     val folder = layout.items.find { it.id == id }?.content as? FolderContent
@@ -65,6 +100,7 @@ private fun memberModifier(state: LauncherState, id: Long, key: AppKey, overlay:
             },
             onDrag = state::moveDrag, onDragEnd = state::endDrag, onDragCancel = state::cancelDrag,
         )).semantics {
+            customActions = accessibleActions
             contentDescription = state.appFor(AppContent(key))?.label ?: key.pkg
             onClick { state.launch(AppContent(key), null); true }
         }
