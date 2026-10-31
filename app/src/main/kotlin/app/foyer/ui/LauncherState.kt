@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.annotation.StringRes
 import app.foyer.R
 import app.foyer.Graph
+import app.foyer.data.FolderContent
 import app.foyer.data.AppContent
 import app.foyer.data.AppInfo
 import app.foyer.data.Content
@@ -125,6 +126,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var searchActive by mutableStateOf(false)
 
     // --- overlays ---
+    var folderFeedback by mutableStateOf<Int?>(null)
+    var openFolder by mutableStateOf<Long?>(null)
+    var folderEditor by mutableStateOf<Long?>(null)
     var menu by mutableStateOf<MenuSpec?>(null)
     var selectedWidget by mutableStateOf<Long?>(null)
     var widgetPickerAt by mutableStateOf<Pair<Int, Int>?>(null)
@@ -133,7 +137,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var isDefaultHome by mutableStateOf(true)
 
     /** Nothing open on top of the feed: no search, menu, picker or settings. */
-    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && widgetPickerAt == null && !settingsOpen && aliasEditor == null
+    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && widgetPickerAt == null && !settingsOpen && aliasEditor == null && openFolder == null && folderEditor == null
 
     // --- geometry, filled in by the UI ---
     val feedScroll = ScrollState(0)
@@ -240,11 +244,13 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun dismissOverlays() {
         menu = null
         selectedWidget = null
+        openFolder = null
+        folderEditor = null
     }
 
     /** Home button while already home: peel off one layer; with nothing open, go back to the top. */
     fun onHomePressed(wasVisible: Boolean) {
-        val hadOverlay = menu != null || selectedWidget != null || widgetPickerAt != null || settingsOpen || searchOpen || aliasEditor != null
+        val hadOverlay = openFolder != null || folderEditor != null || menu != null || selectedWidget != null || widgetPickerAt != null || settingsOpen || searchOpen || aliasEditor != null
         dismissOverlays()
         aliasEditor = null
         widgetPickerAt = null
@@ -259,6 +265,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         when (content) {
             is AppContent -> searchable.apps["a/${content.app}"]?.let { actions.launchApp(it, bounds) }
             is ShortcutContent -> graph.apps.userOf(content.user)?.let { actions.launchShortcut(content.pkg, content.shortcutId, it, bounds) }
+            is FolderContent -> Unit
             is WidgetContent -> Unit
         }
     }
@@ -267,6 +274,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val key = when (content) {
             is AppContent -> content.app
             is ShortcutContent -> return searchable.apps.values.firstOrNull { it.key.pkg == content.pkg && it.key.user == content.user }
+            is FolderContent -> return null
             is WidgetContent -> return null
         }
         return searchable.apps["a/$key"]
@@ -280,6 +288,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun showItemMenu(item: HomeItem, anchor: androidx.compose.ui.geometry.Rect) {
         val app = appFor(item.content)
         val actionsList = buildList {
+            if (item.content is FolderContent) {
+                add(MenuAction(R.string.folder_manage, MenuIcons.Edit) { folderEditor = item.id })
+            }
             // Same order as Pixel Launcher: app info, remove, uninstall; for widgets remove, settings.
             if (app != null && item.content is AppContent) {
                 add(infoAction(app))
@@ -335,6 +346,10 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         menu = MenuSpec(
             anchor,
             actions = listOf(
+                MenuAction(R.string.folder_create, MenuIcons.Add) {
+                    graph.layout.edit { Edits.add(it, FolderContent(), cellX, cellY) }
+                    folderEditor = layout.items.lastOrNull { it.content is FolderContent && it.x == cellX && it.y == cellY }?.id
+                },
                 MenuAction(R.string.action_widgets, MenuIcons.Widgets) { widgetPickerAt = cellX to cellY },
                 MenuAction(R.string.action_wallpaper_style, MenuIcons.Wallpaper) { actions.wallpaper() },
                 MenuAction(R.string.action_settings, MenuIcons.Settings) { settingsOpen = true },
@@ -371,6 +386,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             dropOrigins[plan.second] = s.anchor
             graph.layout.edit { plan.first }
         } else if (s.placedId != null) {
+            if (s.content is FolderContent) folderFeedback = R.string.folder_move_failed
             // Spring back home.
             dropOrigins[s.placedId!!] = s.anchor
         }
@@ -385,6 +401,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             dockCoords?.takeIf { it.isAttached }?.let { dc ->
                 val local = dc.localPositionOf(root, p)
                 if (local.x in 0f..dc.size.width.toFloat() && local.y in -cellH * 0.2f..dc.size.height.toFloat() + cellH) {
+                    if (s.content is FolderContent) return null
                     val slot = (local.x / (dc.size.width / HomeLayout.DOCK_SLOTS.toFloat())).toInt()
                     return DropTarget.Dock(slot.coerceIn(0, HomeLayout.DOCK_SLOTS - 1))
                 }
@@ -398,8 +415,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             x = (local.x / cellW).roundToInt().coerceIn(0, HomeLayout.COLUMNS - s.w)
             y = (local.y / cellH).roundToInt()
         } else {
-            x = floor(local.x / cellW).toInt().coerceIn(0, HomeLayout.COLUMNS - 1)
-            y = floor(local.y / cellH).toInt()
+            x = floor(local.x / cellW - (s.w - 1) / 2f).toInt().coerceIn(0, HomeLayout.COLUMNS - s.w)
+            y = floor(local.y / cellH - (s.h - 1) / 2f).toInt()
         }
         if (y < 0) return null
         return DropTarget.Feed(x, y)
@@ -418,12 +435,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 } else {
                     val other = l.feed.singleOrNull { it.id != placed?.id && it.overlaps(t.x, t.y, s.w, s.h) }
                     if (placed != null && other != null && other.w == 1 && other.h == 1 && s.w == 1 && s.h == 1 &&
-                        (!placed.dock || other.content !is WidgetContent)
+                        (!placed.dock || other.content !is WidgetContent && other.content !is FolderContent)
                     ) Edits.swap(l, placed, other) to placed.id else null
                 }
             }
             is DropTarget.Dock -> {
-                if (s.isWidget) return null
+                if (s.isWidget || s.content is FolderContent) return null
                 if (l.dockSlotFree(t.slot, ignore = placed?.id)) {
                     if (placed != null) Edits.move(l, placed.id, t.slot, 0, dock = true) to placed.id
                     else Edits.add(l, s.content, t.slot, 0, dock = true) to l.nextId
@@ -433,6 +450,16 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 }
             }
         }
+    }
+
+    fun saveFolder(id: Long, folder: FolderContent): Boolean {
+        var saved = false
+        graph.layout.edit { l ->
+            val result = Edits.folder(l, id, folder)
+            saved = result !== l
+            result
+        }
+        return saved
     }
 
     // --- widgets ---

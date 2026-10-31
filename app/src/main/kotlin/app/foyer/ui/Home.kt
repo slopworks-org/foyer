@@ -88,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.res.stringResource
 import app.foyer.R
+import app.foyer.data.FolderContent
 import app.foyer.data.AppContent
 import app.foyer.data.Content
 import app.foyer.data.HomeItem
@@ -443,6 +444,7 @@ fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Mod
 
     when (content) {
         is AppContent, is ShortcutContent -> IconTile(state, item, iconSize, baseModifier)
+        is FolderContent -> FolderTile(state, item, content, iconSize, baseModifier)
         is WidgetContent -> WidgetTile(state, item, content, baseModifier)
     }
 }
@@ -481,6 +483,7 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
 fun iconOf(state: LauncherState, content: Content) = when (content) {
     is AppContent -> state.appFor(content)?.icon
     is ShortcutContent -> state.appFor(content)?.icon
+    is FolderContent -> null
     is WidgetContent -> null
 }
 
@@ -814,6 +817,17 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
     if (s.isWidget) return
     val lift = remember(s) { Animatable(1f) }
     LaunchedEffect(s) { lift.animateTo(1.12f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)) }
+    val folder = s.content as? FolderContent
+    if (folder != null) {
+        val density = LocalDensity.current
+        val width = with(density) { (state.cellW * s.w).toDp() }
+        val height = with(density) { (state.cellH * s.h).toDp() }
+        FolderTile(state, (s.source as DragSource.Placed).item, folder, iconSize,
+            Modifier.offset {
+                IntOffset((s.anchor.x - state.cellW * s.w / 2).roundToInt(), (s.anchor.y - state.cellH * s.h / 2).roundToInt())
+            }.size(width, height))
+        return
+    }
     val half = with(LocalDensity.current) { iconSize.toPx() / 2 }
     AppIcon(
         s.icon,

@@ -50,6 +50,11 @@ fun FoyerRoot(state: LauncherState) {
     state.searchable = searchable
     state.keyboard = LocalSoftwareKeyboardController.current
     state.focusManager = LocalFocusManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(state.folderFeedback) {
+        state.folderFeedback?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
+        state.folderFeedback = null
+    }
     val scope = rememberCoroutineScope()
     val closePull = remember { SearchClosePull(state) }
     val lift = keyboardLift()
@@ -113,6 +118,8 @@ fun FoyerRoot(state: LauncherState) {
                 SystemBarsAppearance(state)
 
                 DragGhost(state, iconSize = state.iconSize)
+                FolderOverlay(state, layout)
+                FolderEditor(state, layout)
                 MenuOverlay(state)
                 WidgetPicker(state)
                 SettingsScreen(state, layout.settings)

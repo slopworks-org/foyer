@@ -37,4 +37,17 @@
     <string name="shortcut_unavailable">Ярлык недоступен</string>
     <string name="wallpaper_chooser">Обои</string>
     <string name="no_app_to_open">Нечем открыть</string>
+    <string name="folder_default">Папка</string>
+    <string name="folder_create">Создать папку</string>
+    <string name="folder_manage">Настроить папку</string>
+    <string name="folder_title">Название папки (необязательно)</string>
+    <string name="folder_large">Большая папка (2 × 2)</string>
+    <string name="folder_order">Приложения по порядку. Нажмите «Выше», чтобы изменить порядок; выберите приложение ниже для добавления.</string>
+    <string name="folder_up">Выше</string>
+    <string name="folder_add">Добавить приложение</string>
+    <string name="folder_save">Сохранить</string>
+    <string name="folder_cancel">Отмена</string>
+    <string name="folder_capacity">В большой папке может быть не более девяти приложений.</string>
+    <string name="folder_collision">Недостаточно места. Для большой папки нужна свободная область 2 × 2.</string>
+    <string name="folder_move_failed">Здесь нельзя разместить папку.</string>
 </resources>
