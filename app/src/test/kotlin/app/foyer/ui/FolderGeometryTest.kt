@@ -3,6 +3,10 @@ package app.foyer.ui
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import app.foyer.data.AppKey
+import app.foyer.data.Edits
+import app.foyer.data.FolderContent
+import app.foyer.data.HomeLayout
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -25,6 +29,7 @@ class FolderGeometryTest {
         val nameArea = Offset(140f, 520f)
         assertTrue(underlyingMember.contains(nameArea))
         assertEquals(DropLayer.Panel, dropLayerAt(nameArea, viewport, panel, null))
+        assertEquals(DropLayer.Panel, dropLayerAt(nameArea, viewport, panel, Rect(0f, 500f, 400f, 800f)))
         assertEquals(DropLayer.Panel, dropLayerAt(Offset(22f, 202f), viewport, panel, null))
         assertEquals(DropLayer.Feed, dropLayerAt(Offset(140f, 560f), viewport, panel, null))
         assertNull(dropLayerAt(Offset(140f, -5f), viewport, panel, null))
@@ -54,5 +59,42 @@ class FolderGeometryTest {
     @Test fun keyboardAndLongContentsFitVisibleArea() {
         val viewport = Rect(12f, 24f, 388f, 260f)
         assertEquals(viewport, folderPanelRect(Rect(300f, 500f, 350f, 550f), viewport, Size(500f, 2000f)))
+    }
+
+    @Test fun morphStartsAtActualPreviewIconsIncludingTriangleAndLargeGrid() {
+        val surface = Rect(100f, 200f, 200f, 300f)
+        val triangle = (0..2).map { folderMemberStart(surface, false, 3, it, 100f, 10f) }
+        assertEquals(listOf(Offset(150f, 230f), Offset(130f, 270f), Offset(170f, 270f)), triangle.map { it.center })
+        assertTrue(triangle.all { it.width == 38f })
+        val large = (0..8).map { folderMemberStart(surface, true, 9, it, 100f, 10f) }
+        assertEquals(surface.center, large[4].center)
+        assertEquals(65f, large[4].width)
+        assertTrue(large[0].center.x < large[1].center.x && large[1].center.x < large[2].center.x)
+        assertTrue(large[0].center.y < large[3].center.y && large[3].center.y < large[6].center.y)
+    }
+
+    @Test fun hoverGapAndCommittedOrderAgreeForEveryMemberAndInsertionSlot() {
+        val apps = (1..9).map { AppKey("pkg$it", "Main", 0) }
+        val initial = Edits.add(HomeLayout(), FolderContent(apps), 0, 0)
+        for (member in apps) for (index in 0..apps.size) {
+            val preview = folderDragOrder(apps, member, index)
+            val committed = Edits.transferApp(initial, member, sourceFolder = 1, targetFolder = 1, index = index)
+            assertEquals((committed.items.first().content as FolderContent).apps, preview)
+            assertEquals(apps.toSet(), preview.toSet())
+        }
+        assertEquals(listOf(apps[0], null, apps[1]), folderDragOrder(apps.take(2), null, 1))
+    }
+
+    @Test fun stationarySlotsIncludePaddingAndTitleWithoutFollowingAnimatedMembers() {
+        val grid = Rect(20f, 100f, 320f, 300f)
+        assertEquals(0, folderInsertionIndex(Offset(0f, 90f), grid, 100f, 5))
+        assertEquals(2, folderInsertionIndex(Offset(310f, 120f), grid, 100f, 5))
+        assertEquals(3, folderInsertionIndex(Offset(30f, 220f), grid, 100f, 5))
+        assertEquals(5, folderInsertionIndex(Offset(150f, 350f), grid, 100f, 5))
+        assertEquals(0, folderInsertionIndex(grid.center, grid, 100f, 0))
+        assertEquals(7, folderInsertionIndex(Offset(150f, 120f), grid, 100f, 20, scroll = 200f))
+        assertEquals(3, folderInsertionForMember(2, 0))
+        assertEquals(0, folderInsertionForMember(0, 2))
+        assertEquals(1, folderInsertionForMember(1, -1))
     }
 }

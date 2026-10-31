@@ -136,6 +136,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var folderFeedback by mutableStateOf<Int?>(null)
     var openFolder by mutableStateOf<Long?>(null)
     val folderBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
+    val folderSurfaceBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
+    var folderTransitionId by mutableStateOf<Long?>(null)
+    var folderGridBounds: androidx.compose.ui.geometry.Rect? = null
+    var folderRowHeight = 1f
+    var folderGridScroll = 0f
+    val memberDropOrigins = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, Offset>()
     val memberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
     val panelMemberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
     var folderPanelBounds: androidx.compose.ui.geometry.Rect? = null
@@ -427,7 +433,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 val available = key == null || key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages
                 val plan = if (available && target != null) plan(s, target, current) else null
                 if (plan != null) {
-                    dropOrigins[plan.second] = s.anchor
+                    if (target is DropTarget.Folder && key != null) {
+                        if (target.id == openFolder) memberDropOrigins[target.id to key] = s.anchor
+                    } else dropOrigins[plan.second] = s.anchor
                     plan.first
                 } else {
                     if (target is DropTarget.Folder) folderFeedback = R.string.folder_drop_failed
@@ -436,10 +444,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                     current
                 }
             }
+            if (drag === s) {
+                if (s.source is DragSource.Member && (target as? DropTarget.Folder)?.id != s.source.folderId) openFolder = null
+                drag = null
+                if (!searchOpen) query = ""
+            }
         }
-        if (s.source is DragSource.Member) openFolder = null
-        drag = null
-        if (!searchOpen) query = ""
     }
 
     fun targetFor(s: DragSession): DropTarget? {
@@ -455,8 +465,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 if (s.content !is AppContent) return null
                 val id = openFolder ?: return null
                 val folder = layout.items.find { it.id == id }?.content as? FolderContent ?: return null
-                val member = panelMemberBounds.entries.firstOrNull { (entry, bounds) -> entry.first == id && bounds.contains(p) }
-                return DropTarget.Folder(id, member?.let { folder.apps.indexOf(it.key.second) } ?: Int.MAX_VALUE)
+                val index = folderGridBounds?.let { folderInsertionIndex(p, it, folderRowHeight, folder.apps.size, folderGridScroll) } ?: folder.apps.size
+                val source = (s.source as? DragSource.Member)?.takeIf { it.folderId == id }
+                return DropTarget.Folder(id, folderInsertionForMember(index, folder.apps.indexOf(source?.key)))
             }
             DropLayer.Dock -> {
                 if (s.isWidget || s.content is FolderContent) return null
@@ -506,7 +517,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 (t as? DropTarget.Folder)?.id, (t as? DropTarget.Folder)?.index ?: Int.MAX_VALUE,
                 (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: 0,
                 (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock)
-            return if (result === l) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
+            val unchangedMember = member != null && t is DropTarget.Folder && member.folderId == t.id &&
+                (l.items.find { it.id == t.id }?.content as? FolderContent)?.apps?.let { apps ->
+                    key in apps && folderDragOrder(apps, key, t.index) == apps
+                } == true
+            return if (result === l && !unchangedMember) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
         }
         return when (t) {
             is DropTarget.Folder -> null

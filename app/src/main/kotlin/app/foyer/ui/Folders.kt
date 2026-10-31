@@ -1,6 +1,9 @@
 package app.foyer.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -8,10 +11,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,8 +26,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -82,21 +87,18 @@ internal fun folderTransferActions(state: LauncherState, key: AppKey, sourceItem
 }
 
 @Composable
-private fun memberModifier(state: LauncherState, id: Long, key: AppKey, overlay: Boolean = false): Modifier {
+private fun memberModifier(state: LauncherState, id: Long, key: AppKey, overlay: Boolean = false, iconCenter: Offset? = null): Modifier {
     val bounds = if (overlay) state.panelMemberBounds else state.memberBounds
     DisposableEffect(id, key) { onDispose { bounds.remove(id to key) } }
     val accessibleActions = folderTransferActions(state, key, sourceFolder = id)
-    val target = state.drag?.let { state.targetFor(it) } as? DropTarget.Folder
-    val layout by state.graph.layout.layout.collectAsState()
-    val folder = layout.items.find { it.id == id }?.content as? FolderContent
-    val insertion = target?.id == id && folder?.apps?.getOrNull(target.index) == key
-    return Modifier.then(if (insertion) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier)
+    val dragged = (state.drag?.source as? DragSource.Member)?.let { it.folderId == id && it.key == key } == true
+    return Modifier.graphicsLayer { alpha = if (dragged) 0f else 1f }
         .onGloballyPositioned { bounds[id to key] = it.boundsInRoot() }
         .itemGestures(ItemGestureCallbacks(
             onTap = { state.openFolder = null; state.launch(AppContent(key), it) },
             onLongPress = {},
             onDragStart = { pointer, bounds ->
-                state.startDrag(DragSession(DragSource.Member(id, key), state.appFor(AppContent(key))?.icon, bounds.center - pointer, pointer))
+                state.startDrag(DragSession(DragSource.Member(id, key), state.appFor(AppContent(key))?.icon, (iconCenter ?: bounds.center) - pointer, pointer))
             },
             onDrag = state::moveDrag, onDragEnd = state::endDrag, onDragCancel = state::cancelDrag,
         )).semantics {
@@ -111,7 +113,10 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
     val title = folder.name.ifEmpty { stringResource(R.string.folder_default) }
     val removeLabel = stringResource(R.string.action_remove)
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
-    DisposableEffect(item.id, interactive) { onDispose { if (interactive) state.folderBounds.remove(item.id) } }
+    DisposableEffect(item.id, interactive) { onDispose { if (interactive) {
+        state.folderBounds.remove(item.id)
+        state.folderSurfaceBounds.remove(item.id)
+    } } }
     val callbacks = ItemGestureCallbacks(
         onTap = { state.openFolder = item.id },
         onLongPress = { state.showItemMenu(item, coordinates?.boundsInRoot() ?: it) },
@@ -120,13 +125,14 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
         },
         onDrag = state::moveDrag, onDragEnd = state::endDrag, onDragCancel = state::cancelDrag,
     )
-    Column(modifier.onGloballyPositioned {
+    Column(modifier.graphicsLayer { alpha = if (interactive && state.folderTransitionId == item.id) 0f else 1f }.onGloballyPositioned {
         coordinates = it
         if (interactive) state.folderBounds[item.id] = it.boundsInRoot()
     }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         val panel = if (folder.large) Modifier.weight(1f).fillMaxWidth().padding(6.dp) else Modifier.size(iconSize)
         val target = state.drag?.let { state.targetFor(it) } as? DropTarget.Folder
-        Box(panel.then(if (interactive && target?.id == item.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary,
+        Box(panel.onGloballyPositioned { if (interactive) state.folderSurfaceBounds[item.id] = it.boundsInRoot() }
+            .then(if (interactive && target?.id == item.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary,
             if (folder.large) RoundedCornerShape(24.dp) else CircleShape) else Modifier)) {
             // A sibling hit target gives member drags exclusive ownership of their gestures.
             Box(Modifier.matchParentSize().clip(if (folder.large) RoundedCornerShape(24.dp) else CircleShape)
@@ -136,15 +142,13 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                         { coordinates?.boundsInRoot()?.let { state.showItemMenu(item, it) } }, { state.graph.removeItem(item) })
                 } else Modifier))
             if (folder.large) {
-                Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.SpaceEvenly) {
-                    repeat(3) { row ->
-                        Row(Modifier.weight(1f).fillMaxWidth()) {
-                            repeat(3) { column ->
-                                val key = folder.apps.getOrNull(row * 3 + column)
-                                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                                    if (key != null) AppIcon(state.appFor(AppContent(key))?.icon, iconSize * .65f,
-                                        if (interactive) memberModifier(state, item.id, key) else Modifier)
-                                }
+                BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
+                    val rowHeight = maxHeight / 3
+                    LazyVerticalGrid(columns = GridCells.Fixed(3), userScrollEnabled = false) {
+                        items(folder.apps, key = { it.toString() }) { key ->
+                            Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                AppIcon(state.appFor(AppContent(key))?.icon, iconSize * .65f,
+                                    if (interactive) memberModifier(state, item.id, key) else Modifier)
                             }
                         }
                     }
@@ -167,12 +171,16 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
 
 @Composable
 fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
-    val expansion = remember { androidx.compose.animation.core.Animatable(0f) }
+    val expansion = remember { Animatable(0f) }
     var shown by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(state.openFolder) {
         val target = state.openFolder
-        if (target != null) shown = target
-        expansion.animateTo(if (target == null) 0f else 1f, androidx.compose.animation.core.tween(160))
+        if (target != null && target != shown) {
+            expansion.snapTo(0f)
+            shown = target
+        }
+        expansion.animateTo(if (target == null) 0f else 1f,
+            tween(if (target == null) 220 else 260, easing = FastOutSlowInEasing))
         if (target == null) shown = null
     }
     val id = shown ?: return
@@ -186,7 +194,15 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
     val ime = WindowInsets.ime.getBottom(density).toFloat()
     val close = { state.focusManager?.clearFocus(); state.keyboard?.hide(); state.openFolder = null }
     BackHandler { state.cancelDrag(); close() }
-    DisposableEffect(id) { onDispose { state.folderPanelBounds = null } }
+    DisposableEffect(id) {
+        state.folderTransitionId = id
+        onDispose {
+            state.folderTransitionId = null
+            state.folderPanelBounds = null
+            state.folderGridBounds = null
+            state.memberDropOrigins.keys.filter { it.first == id }.forEach { state.memberDropOrigins.remove(it) }
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val width = with(density) { maxWidth.toPx() }
         val height = with(density) { maxHeight.toPx() }
@@ -194,40 +210,98 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         val dockTop = state.dockRowBottomPx - state.dockContentPx
         val bottom = minOf(height - maxOf(safeBottom, ime), if (dockTop > safeTop) dockTop else height - safeBottom)
         val viewport = Rect(safeLeft + margin, safeTop + margin, width - safeRight - margin, (bottom - margin).coerceAtLeast(safeTop + margin))
-        val anchor = state.folderBounds[id] ?: Rect(Offset(width / 2, height / 2), Size.Zero)
+        val anchor = state.folderSurfaceBounds[id] ?: Rect(Offset(width / 2, height / 2), Size.Zero)
         val rows = ceil(folder.apps.size / 3f).toInt().coerceAtLeast(1)
-        val rect = folderPanelRect(anchor, viewport, with(density) { Size(336.dp.toPx(), (rows * 104 + 80).dp.toPx()) })
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .35f * expansion.value)).clickable(onClick = close))
-        Surface(Modifier.offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
-            .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
+        // The reference panel is about 4.85 home-icon diameters wide, with generous row spacing.
+        val icon = state.iconSize
+        val rowHeight = icon * 1.8f
+        val rect = folderPanelRect(anchor, viewport, with(density) {
+            Size((icon * 4.85f).toPx(), (rowHeight * rows + 64.dp).toPx())
+        })
+        val p = expansion.value
+        val current = androidx.compose.ui.geometry.lerp(anchor, rect, p)
+        val radius = with(density) { if (folder.large) 24.dp.toPx() else anchor.width / 2 }
+        val corner = with(density) { (radius + (24.dp.toPx() - radius) * p).toDp() }
+        val labels = ((p - .45f) / .55f).coerceIn(0f, 1f)
+        val drag = state.drag
+        val gridState = key(id) { rememberLazyGridState() }
+        SideEffect {
+            state.folderGridScroll = gridState.firstVisibleItemIndex / 3 * with(density) { rowHeight.toPx() } + gridState.firstVisibleItemScrollOffset
+        }
+        val target = drag?.let { state.targetFor(it) } as? DropTarget.Folder
+        val member = (drag?.source as? DragSource.Member)?.takeIf { it.folderId == id }?.key
+        val order = if (target?.id == id) folderDragOrder(folder.apps, member, target.index) else folder.apps
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .22f * p)).clickable(onClick = close))
+        Box(Modifier.offset { IntOffset(current.left.roundToInt(), current.top.roundToInt()) }
+            .size(with(density) { current.width.toDp() }, with(density) { current.height.toDp() })
             .onGloballyPositioned { state.folderPanelBounds = it.boundsInRoot() }
-            .graphicsLayer {
-                alpha = expansion.value
-                scaleX = .2f + .8f * expansion.value
-                scaleY = .2f + .8f * expansion.value
-                transformOrigin = TransformOrigin(
-                    ((anchor.center.x - rect.left) / rect.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
-                    ((anchor.center.y - rect.top) / rect.height.coerceAtLeast(1f)).coerceIn(0f, 1f))
-            }
-            .clickable {}, shape = RoundedCornerShape(32.dp), tonalElevation = 6.dp) {
-            Column(Modifier.padding(12.dp)) {
-                LazyVerticalGrid(columns = GridCells.Fixed(3), modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    items(folder.apps, key = { it.toString() }) { key ->
-                        val app = state.appFor(AppContent(key))
-                        Column(memberModifier(state, id, key, overlay = true).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            AppIcon(app?.icon, 48.dp)
-                            Text(app?.label ?: key.pkg, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+            .clip(RoundedCornerShape(corner)).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable {}) {
+            Column(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
+                .requiredSize(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
+                .offset { IntOffset((rect.left - current.left).roundToInt(), (rect.top - current.top).roundToInt()) }
+                .padding(horizontal = 8.dp).padding(top = 12.dp, bottom = 4.dp)) {
+                LazyVerticalGrid(columns = GridCells.Fixed(3), state = gridState, modifier = Modifier.weight(1f).fillMaxWidth()
+                    .onGloballyPositioned {
+                        state.folderGridBounds = it.boundsInRoot()
+                        state.folderRowHeight = with(density) { rowHeight.toPx() }
+                    }) {
+                    items(order, key = { it?.toString() ?: "folder-insertion" }) { key ->
+                        if (key == null) {
+                            Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                                Box(Modifier.padding(top = 8.dp).size(icon).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .07f), CircleShape))
+                            }
+                        } else {
+                            val app = state.appFor(AppContent(key))
+                            val index = folder.apps.indexOf(key)
+                            val start = folderMemberStart(anchor, folder.large, folder.apps.size, index,
+                                with(density) { icon.toPx() }, with(density) { 5.dp.toPx() })
+                            var end by remember(key) { mutableStateOf<Rect?>(null) }
+                            val landing = remember(key) { Animatable(1f) }
+                            val origin = state.memberDropOrigins[id to key]
+                            LaunchedEffect(origin) {
+                                if (origin != null) {
+                                    landing.snapTo(0f)
+                                    landing.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+                                    state.memberDropOrigins.remove(id to key)
+                                }
+                            }
+                            Column(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
+                                .then(memberModifier(state, id, key, overlay = true, iconCenter = end?.center)).height(rowHeight)
+                                .graphicsLayer { alpha = if (member == key) 0f else 1f },
+                                horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(Modifier.padding(top = 8.dp).size(icon).onGloballyPositioned { end = it.boundsInRoot() }) {
+                                    AppIcon(app?.icon, icon, Modifier.graphicsLayer {
+                                        val destination = end?.center ?: rect.center
+                                        translationX = (start.center.x - destination.x) * (1f - p) +
+                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value)
+                                        translationY = (start.center.y - destination.y) * (1f - p) +
+                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value)
+                                        val scale = start.width / with(density) { icon.toPx() }
+                                        scaleX = scale + (1f - scale) * p
+                                        scaleY = scaleX
+                                        alpha = if (index < if (folder.large) 9 else 4) 1f else labels
+                                    })
+                                }
+                                Text(app?.label ?: key.pkg, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(top = 6.dp).graphicsLayer { alpha = labels })
+                            }
                         }
                     }
                 }
-                TextField(value = folder.name, onValueChange = { state.renameFolder(id, it) },
-                    placeholder = { Text(stringResource(R.string.folder_title), Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
-                    singleLine = true, textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
+                BasicTextField(value = folder.name, onValueChange = { state.renameFolder(id, it) },
+                    singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { state.focusManager?.clearFocus(); state.keyboard?.hide() }),
-                    colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
-                    modifier = Modifier.fillMaxWidth())
+                    decorationBox = { field ->
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            if (folder.name.isEmpty()) Text(stringResource(R.string.folder_title),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                            field()
+                        }
+                    }, modifier = Modifier.fillMaxWidth().height(48.dp).graphicsLayer { alpha = labels })
             }
         }
     }

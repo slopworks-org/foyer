@@ -41,7 +41,7 @@
     <string name="no_app_to_open">No app can open this</string>
     <string name="folder_default">Folder</string>
     <string name="folder_create">Create folder</string>
-    <string name="folder_title">Folder name (optional)</string>
+    <string name="folder_title">Edit name</string>
     <string name="folder_capacity">Large folders hold at most nine apps.</string>
     <string name="folder_collision">Not enough free space. Large folders need a free 2 × 2 area.</string>
     <string name="folder_move_failed">Folder cannot be placed here.</string>
