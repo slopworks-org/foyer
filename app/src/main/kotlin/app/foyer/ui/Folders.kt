@@ -237,6 +237,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         val labels = ((p - .45f) / .55f).coerceIn(0f, 1f)
         val drag = state.drag
         val gridState = key(id) { rememberLazyGridState() }
+        val liveMemberFrames = remember(id) { mutableMapOf<AppKey, () -> Rect?>() }
         val rowPx = with(density) { rowHeight.toPx() }
         val iconPx = with(density) { icon.toPx() }
         val gridRect = Rect(rect.left + with(density) { 8.dp.toPx() }, rect.top + with(density) { 12.dp.toPx() },
@@ -291,6 +292,16 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                             var end by remember(key) { mutableStateOf<Rect?>(null) }
                             val landing = remember(key) { Animatable(1f) }
                             val origin = state.memberDropOrigins[id to key]
+                            DisposableEffect(key, origin) {
+                                // Keep lazy placement and landing motion continuous when the
+                                // independent preview takes over during an interrupted drop.
+                                liveMemberFrames[key] = {
+                                    end?.let { bounds ->
+                                        bounds.translate(((origin ?: bounds.center) - bounds.center) * (1f - landing.value))
+                                    }
+                                }
+                                onDispose { liveMemberFrames.remove(key) }
+                            }
                             LaunchedEffect(origin) {
                                 if (origin != null) {
                                     landing.snapTo(0f)
@@ -309,9 +320,9 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                     AppIcon(app?.icon, icon, Modifier.graphicsLayer {
                                         val destination = end?.center ?: rect.center
                                         translationX = (start.center.x - destination.x) * (1f - p) +
-                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value)
+                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value) * p
                                         translationY = (start.center.y - destination.y) * (1f - p) +
-                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value)
+                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value) * p
                                         val scale = start.width / with(density) { icon.toPx() }
                                         scaleX = scale + (1f - scale) * p
                                         scaleY = scaleX
@@ -329,9 +340,9 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                         scaleY = scaleX
                                         transformOrigin = TransformOrigin(.5f, 0f)
                                         translationX = (start.center.x - destination.x) * (1f - p) +
-                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value)
+                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value) * p
                                         translationY = (start.center.y - destination.y) * (1f - p) +
-                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value) +
+                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value) * p +
                                             (scaleX - 1f) * (iconPx / 2 + with(density) { 6.dp.toPx() })
                                         alpha = labels
                                     })
@@ -365,7 +376,8 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                         val slot = order.indexOf(key).coerceAtLeast(0)
                         val start = folderMemberStart(anchor, folder.large, folder.apps.size, index, iconPx,
                             with(density) { 5.dp.toPx() })
-                        val end = folderGridIcon(gridRect, slot, rowPx, iconPx, with(density) { 8.dp.toPx() }, scroll)
+                        val end = liveMemberFrames[key]?.invoke()
+                            ?: folderGridIcon(gridRect, slot, rowPx, iconPx, with(density) { 8.dp.toPx() }, scroll)
                         val frame = folderMemberFrame(start, end, p)
                         AppIcon(state.appFor(AppContent(key))?.icon, icon, Modifier.testTag("folder-morph-preview-$index")
                             .offset { IntOffset((frame.center.x - current.left - iconPx / 2).roundToInt(),
