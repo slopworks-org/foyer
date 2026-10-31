@@ -86,6 +86,8 @@ fun Modifier.itemGestures(
                             while (true) {
                                 val ev = awaitPointerEvent()
                                 val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                // Compose sends cancellation as an already-consumed synthetic up.
+                                val wasConsumed = c.isConsumed
                                 c.consume()
                                 val now = coords ?: lc
                                 val position = now.localToRoot(c.position)
@@ -94,7 +96,7 @@ fun Modifier.itemGestures(
                                 tracker.addPosition(c.uptimeMillis, position)
                                 if (!c.pressed) {
                                     if (dragging) cb.onDrag(position)
-                                    released = c.changedToUpIgnoreConsumed()
+                                    released = c.changedToUpIgnoreConsumed() && !wasConsumed
                                     break
                                 }
                                 if (!dragging && (c.position - down.position).getDistance() > slop) {
