@@ -179,6 +179,34 @@ object Edits {
         return l.copy(items = l.items.map { if (it.id == id) it.copy(content = folder, w = span, h = span) else it })
     }
 
+    /** A drag only commits against current membership, placement and installed-app identity. */
+    fun transferApp(
+        l: HomeLayout, key: AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,
+        targetFolder: Long? = null, index: Int = Int.MAX_VALUE,
+        x: Int = 0, y: Int = 0, dock: Boolean = false, available: Boolean = true,
+    ): HomeLayout {
+        if (!available || sourceItem != null && sourceFolder != null) return l
+        val source = sourceItem?.let { id -> l.items.find { it.id == id } }
+        if (sourceItem != null && source?.content != AppContent(key)) return l
+        val from = sourceFolder?.let { id -> l.items.find { it.id == id }?.content as? FolderContent }
+        if (sourceFolder != null && (from == null || key !in from.apps)) return l
+        val target = targetFolder?.let { id -> l.items.find { it.id == id }?.content as? FolderContent }
+        if (targetFolder != null && target == null) return l
+        if (target != null) {
+            if (sourceFolder != targetFolder && (key in target.apps || target.large && target.apps.size >= 9)) return l
+            val members = target.apps - key
+            val updated = members.toMutableList().apply { add(index.coerceIn(0, size), key) }
+            var result = folder(l, targetFolder, target.copy(apps = updated))
+            if (sourceItem != null) result = remove(result, sourceItem)
+            if (sourceFolder != null && sourceFolder != targetFolder) result = folder(result, sourceFolder, from!!.copy(apps = from.apps - key))
+            return result
+        }
+        if (source != null) return move(l, source.id, x, y, dock)
+        val added = add(l, AppContent(key), x, y, dock = dock)
+        if (added === l) return l
+        return if (sourceFolder == null) added else folder(added, sourceFolder, from!!.copy(apps = from.apps - key))
+    }
+
     fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(
         items = l.items.map { item ->
             val folder = item.content as? FolderContent
