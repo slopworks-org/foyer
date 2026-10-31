@@ -91,9 +91,9 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
                 key.pkg in installing) PackagePresence.Unknown
             else {
                 try {
-                    // Query package identity, including disabled and temporarily unavailable apps.
-                    launcherApps.getApplicationInfo(key.pkg, PackageManager.MATCH_UNINSTALLED_PACKAGES or
-                        PackageManager.MATCH_DISABLED_COMPONENTS or PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS, user)
+                    // Include disabled packages, but not uninstalled packages with retained data.
+                    launcherApps.getApplicationInfo(key.pkg, PackageManager.MATCH_DISABLED_COMPONENTS or
+                        PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS, user)
                     PackagePresence.Present
                 } catch (_: PackageManager.NameNotFoundException) {
                     PackagePresence.Missing
