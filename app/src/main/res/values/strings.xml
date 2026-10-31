@@ -41,15 +41,11 @@
     <string name="no_app_to_open">No app can open this</string>
     <string name="folder_default">Folder</string>
     <string name="folder_create">Create folder</string>
-    <string name="folder_manage">Manage folder</string>
     <string name="folder_title">Folder name (optional)</string>
-    <string name="folder_large">Large folder (2 × 2)</string>
-    <string name="folder_order">Apps in order. Use Up to reorder; tap an app below to add it.</string>
-    <string name="folder_up">Up</string>
-    <string name="folder_add">Add app</string>
-    <string name="folder_save">Save</string>
-    <string name="folder_cancel">Cancel</string>
     <string name="folder_capacity">Large folders hold at most nine apps.</string>
     <string name="folder_collision">Not enough free space. Large folders need a free 2 × 2 area.</string>
     <string name="folder_move_failed">Folder cannot be placed here.</string>
+    <string name="folder_enlarge">Enlarge folder</string>
+    <string name="folder_shrink">Shrink folder</string>
+    <string name="folder_drop_failed">Cannot move this app here. The folder may be full or already contain it.</string>
 </resources>

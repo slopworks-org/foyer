@@ -42,7 +42,8 @@ To build from source, run `./gradlew :app:installRelease`. A local build is sign
 - Long-press an item and drag it to move it.
 - Long-press a widget, then drag a handle of its frame to resize it.
 - Long-press an empty area to create a folder, add widgets or open settings.
-- Long-press a folder and choose "Manage folder" to add or remove apps, reorder with "Up", rename it (clear the field for no title), or switch size. Remove the folder through its long-press menu.
+- Drag an app from search or the desktop onto a folder. Desktop apps move into it. Hold over a small folder to open it, then drop over a member to insert before it. Long-press a member and drag to reorder, move to another folder, or move out to a free desktop cell or dock slot. Invalid drops leave the source unchanged.
+- Tap a small folder to open its anchored grid; tap the name below the apps to rename it, or clear it to hide the desktop title. Tap outside, Back or Home to close. Long-press the folder background (between icons in a large folder), then drag to move the whole folder. Its Actions menu offers Enlarge folder / Shrink folder and Remove.
 - Small folders open a scrolling app grid. Large folders occupy 2 × 2 cells and launch up to nine apps directly. Expansion needs free cells beside and below the folder; it never moves neighbors. Folders stay in the feed and may remain empty.
 
 </details>

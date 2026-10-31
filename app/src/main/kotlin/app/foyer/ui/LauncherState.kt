@@ -67,6 +67,7 @@ class MenuSpec(
 
 sealed interface DragSource {
     data class Placed(val item: HomeItem) : DragSource
+    data class Member(val folderId: Long, val key: app.foyer.data.AppKey) : DragSource
     data class New(val content: Content) : DragSource
 }
 
@@ -80,7 +81,11 @@ class DragSession(
 ) {
     var pointer by mutableStateOf(pointer)
     val anchor get() = pointer + anchorOffset
-    val content: Content get() = (source as? DragSource.Placed)?.item?.content ?: (source as DragSource.New).content
+    val content: Content get() = when (source) {
+        is DragSource.Placed -> source.item.content
+        is DragSource.Member -> AppContent(source.key)
+        is DragSource.New -> source.content
+    }
     val w get() = (source as? DragSource.Placed)?.item?.w ?: 1
     val h get() = (source as? DragSource.Placed)?.item?.h ?: 1
     val placedId get() = (source as? DragSource.Placed)?.item?.id
@@ -89,6 +94,7 @@ class DragSession(
 
 sealed interface DropTarget {
     data class Feed(val x: Int, val y: Int) : DropTarget
+    data class Folder(val id: Long, val index: Int = Int.MAX_VALUE) : DropTarget
     data class Dock(val slot: Int) : DropTarget
 }
 
@@ -128,7 +134,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     // --- overlays ---
     var folderFeedback by mutableStateOf<Int?>(null)
     var openFolder by mutableStateOf<Long?>(null)
-    var folderEditor by mutableStateOf<Long?>(null)
+    val folderBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
+    val memberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
+    val panelMemberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
+    var folderPanelBounds: androidx.compose.ui.geometry.Rect? = null
+    private var hoverJob: kotlinx.coroutines.Job? = null
+    private var hoverFolder: Long? = null
     var menu by mutableStateOf<MenuSpec?>(null)
     var selectedWidget by mutableStateOf<Long?>(null)
     var widgetPickerAt by mutableStateOf<Pair<Int, Int>?>(null)
@@ -137,7 +148,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var isDefaultHome by mutableStateOf(true)
 
     /** Nothing open on top of the feed: no search, menu, picker or settings. */
-    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && widgetPickerAt == null && !settingsOpen && aliasEditor == null && openFolder == null && folderEditor == null
+    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && widgetPickerAt == null && !settingsOpen && aliasEditor == null && openFolder == null
 
     // --- geometry, filled in by the UI ---
     val feedScroll = ScrollState(0)
@@ -242,15 +253,16 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     fun dismissOverlays() {
+        if (openFolder != null) { keyboard?.hide(); focusManager?.clearFocus() }
         menu = null
         selectedWidget = null
         openFolder = null
-        folderEditor = null
     }
 
     /** Home button while already home: peel off one layer; with nothing open, go back to the top. */
     fun onHomePressed(wasVisible: Boolean) {
-        val hadOverlay = openFolder != null || folderEditor != null || menu != null || selectedWidget != null || widgetPickerAt != null || settingsOpen || searchOpen || aliasEditor != null
+        cancelDrag()
+        val hadOverlay = openFolder != null || menu != null || selectedWidget != null || widgetPickerAt != null || settingsOpen || searchOpen || aliasEditor != null
         dismissOverlays()
         aliasEditor = null
         widgetPickerAt = null
@@ -289,7 +301,17 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val app = appFor(item.content)
         val actionsList = buildList {
             if (item.content is FolderContent) {
-                add(MenuAction(R.string.folder_manage, MenuIcons.Edit) { folderEditor = item.id })
+                val folder = item.content
+                add(MenuAction(if (folder.large) R.string.folder_shrink else R.string.folder_enlarge, MenuIcons.Edit) {
+                    graph.layout.edit { current ->
+                        val live = current.items.find { it.id == item.id }?.content as? FolderContent
+                        if (live == null) current else {
+                            val result = Edits.folder(current, item.id, live.copy(large = !live.large))
+                            if (result === current) folderFeedback = if (live.apps.size > 9) R.string.folder_capacity else R.string.folder_collision
+                            result
+                        }
+                    }
+                })
             }
             // Same order as Pixel Launcher: app info, remove, uninstall; for widgets remove, settings.
             if (app != null && item.content is AppContent) {
@@ -348,7 +370,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             actions = listOf(
                 MenuAction(R.string.folder_create, MenuIcons.Add) {
                     graph.layout.edit { Edits.add(it, FolderContent(), cellX, cellY) }
-                    folderEditor = layout.items.lastOrNull { it.content is FolderContent && it.x == cellX && it.y == cellY }?.id
+                    openFolder = layout.items.lastOrNull { it.content is FolderContent && it.x == cellX && it.y == cellY }?.id
                 },
                 MenuAction(R.string.action_widgets, MenuIcons.Widgets) { widgetPickerAt = cellX to cellY },
                 MenuAction(R.string.action_wallpaper_style, MenuIcons.Wallpaper) { actions.wallpaper() },
@@ -371,9 +393,22 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun moveDrag(pointer: Offset) {
         drag?.pointer = pointer
+        val session = drag ?: return
+        val target = targetFor(session) as? DropTarget.Folder
+        val id = target?.id
+        if (hoverFolder != id) {
+            hoverJob?.cancel()
+            hoverFolder = id
+            if (id != null && openFolder != id && session.source !is DragSource.Member) hoverJob = scope.launch {
+                kotlinx.coroutines.delay(550)
+                if (drag === session) openFolder = id
+            }
+        }
     }
 
     fun cancelDrag() {
+        hoverJob?.cancel()
+        hoverFolder = null
         drag = null
         if (!searchOpen) query = ""
     }
@@ -381,15 +416,26 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun endDrag() {
         val s = drag ?: return
         val target = targetFor(s)
-        val plan = target?.let { plan(s, it) }
-        if (plan != null) {
-            dropOrigins[plan.second] = s.anchor
-            graph.layout.edit { plan.first }
-        } else if (s.placedId != null) {
-            if (s.content is FolderContent) folderFeedback = R.string.folder_move_failed
-            // Spring back home.
-            dropOrigins[s.placedId!!] = s.anchor
+        hoverJob?.cancel()
+        hoverFolder = null
+        val key = (s.content as? AppContent)?.app
+        scope.launch {
+            val missing = if (key == null) emptySet() else graph.apps.missingFolderApps(listOf(key))
+            graph.layout.edit { current ->
+                val available = key == null || key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages
+                val plan = if (available && target != null) plan(s, target, current) else null
+                if (plan != null) {
+                    dropOrigins[plan.second] = s.anchor
+                    plan.first
+                } else {
+                    if (target is DropTarget.Folder) folderFeedback = R.string.folder_drop_failed
+                    else if (s.content is FolderContent) folderFeedback = R.string.folder_move_failed
+                    s.placedId?.let { dropOrigins[it] = s.anchor }
+                    current
+                }
+            }
         }
+        if (s.source is DragSource.Member) openFolder = null
         drag = null
         if (!searchOpen) query = ""
     }
@@ -397,6 +443,18 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun targetFor(s: DragSession): DropTarget? {
         val root = rootCoords ?: return null
         val p = s.anchor
+        if (s.content is AppContent) {
+            (panelMemberBounds + memberBounds.filterKeys { it.first != openFolder }).entries.firstOrNull { (entry, bounds) ->
+                (openFolder == entry.first || (layout.items.find { it.id == entry.first }?.content as? FolderContent)?.large == true) && bounds.contains(p)
+            }?.let { (entry, _) ->
+                val folder = layout.items.find { it.id == entry.first }?.content as? FolderContent
+                return DropTarget.Folder(entry.first, folder?.apps?.indexOf(entry.second) ?: 0)
+            }
+            if (openFolder != null && folderPanelBounds?.contains(p) == true) return DropTarget.Folder(openFolder!!)
+            folderBounds.entries.firstOrNull { (id, bounds) -> id != s.placedId && bounds.contains(p) }?.let {
+                return DropTarget.Folder(it.key)
+            }
+        }
         if (!s.isWidget) {
             dockCoords?.takeIf { it.isAttached }?.let { dc ->
                 val local = dc.localPositionOf(root, p)
@@ -423,11 +481,21 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     /** The layout after dropping, plus the id of the item that landed; null if it cannot go there. */
-    fun plan(s: DragSession, t: DropTarget): Pair<HomeLayout, Long>? {
-        val l = layout
+    fun plan(s: DragSession, t: DropTarget, l: HomeLayout = layout): Pair<HomeLayout, Long>? {
         val placed = (s.source as? DragSource.Placed)?.item?.let { p -> l.items.firstOrNull { it.id == p.id } }
         if (s.source is DragSource.Placed && placed == null) return null
+        val member = s.source as? DragSource.Member
+        val key = (s.content as? AppContent)?.app
+        if (t is DropTarget.Folder || member != null) {
+            if (key == null) return null
+            val result = Edits.transferApp(l, key, placed?.id, member?.folderId,
+                (t as? DropTarget.Folder)?.id, (t as? DropTarget.Folder)?.index ?: Int.MAX_VALUE,
+                (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: 0,
+                (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock)
+            return if (result === l) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
+        }
         return when (t) {
+            is DropTarget.Folder -> null
             is DropTarget.Feed -> {
                 if (l.isFree(t.x, t.y, s.w, s.h, ignore = placed?.id)) {
                     if (placed != null) Edits.move(l, placed.id, t.x, t.y, dock = false) to placed.id
@@ -452,16 +520,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
     }
 
-    suspend fun saveFolder(id: Long, folder: FolderContent, original: Set<app.foyer.data.AppKey>): Boolean {
-        val missing = graph.apps.missingFolderApps(folder.apps)
-        var saved = false
-        graph.layout.edit { l ->
-            val removed = folder.apps.filter { (it.pkg to it.user) in graph.apps.removedPackages }.toSet()
-            val result = Edits.folderDraft(l, id, folder, original, missing + removed)
-            saved = result !== l
-            result
-        }
-        return saved
+    fun renameFolder(id: Long, name: String) = graph.layout.edit { current ->
+        val folder = current.items.find { it.id == id }?.content as? FolderContent
+        if (folder == null) current else Edits.folder(current, id, folder.copy(name = name))
     }
 
     // --- widgets ---

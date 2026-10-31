@@ -117,9 +117,9 @@ fun FoyerRoot(state: LauncherState) {
 
                 SystemBarsAppearance(state)
 
-                DragGhost(state, iconSize = state.iconSize)
+                BackHandler(enabled = state.drag != null) { state.cancelDrag() }
                 FolderOverlay(state, layout)
-                FolderEditor(state, layout)
+                DragGhost(state, iconSize = state.iconSize)
                 MenuOverlay(state)
                 WidgetPicker(state)
                 SettingsScreen(state, layout.settings)

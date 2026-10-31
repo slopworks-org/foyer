@@ -825,7 +825,7 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
         FolderTile(state, (s.source as DragSource.Placed).item, folder, iconSize,
             Modifier.offset {
                 IntOffset((s.anchor.x - state.cellW * s.w / 2).roundToInt(), (s.anchor.y - state.cellH * s.h / 2).roundToInt())
-            }.size(width, height))
+            }.size(width, height), interactive = false)
         return
     }
     val half = with(LocalDensity.current) { iconSize.toPx() / 2 }
