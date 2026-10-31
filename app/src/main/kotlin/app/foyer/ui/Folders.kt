@@ -20,6 +20,9 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.contentDescription
@@ -28,13 +31,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.launch
 import android.widget.Toast
 import app.foyer.R
 import app.foyer.data.*
 
+/** Shared semantic routes: long press opens the full menu; Remove is also available directly. */
+internal fun SemanticsPropertyReceiver.folderActions(removeLabel: String, open: () -> Unit, menu: () -> Unit, remove: () -> Unit) {
+    onClick { open(); true }
+    onLongClick { menu(); true }
+    customActions = listOf(CustomAccessibilityAction(removeLabel) { remove(); true })
+}
+
 @Composable
 fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, iconSize: Dp, modifier: Modifier) {
     val title = folder.name.ifEmpty { stringResource(R.string.folder_default) }
+    val removeLabel = stringResource(R.string.action_remove)
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val callbacks = remember(item) {
         ItemGestureCallbacks(
@@ -48,8 +60,10 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
     }
     Column(modifier.onGloballyPositioned { coordinates = it }.itemGestures(callbacks).semantics {
         contentDescription = title
-        onClick { state.openFolder = item.id; true }
-        onLongClick { state.folderEditor = item.id; true }
+        folderActions(removeLabel,
+            open = { state.openFolder = item.id },
+            menu = { coordinates?.boundsInRoot()?.let { state.showItemMenu(item, it) } },
+            remove = { state.graph.removeItem(item) })
     },
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         val shape = if (folder.large) RoundedCornerShape(24.dp) else CircleShape
@@ -126,6 +140,9 @@ fun FolderEditor(state: LauncherState, layout: HomeLayout) {
     var name by remember(id) { mutableStateOf(folder.name) }
     var large by remember(id) { mutableStateOf(folder.large) }
     val selected = remember(id) { mutableStateListOf<AppKey>().apply { addAll(folder.apps) } }
+    val original = remember(id) { folder.apps.toSet() }
+    val scope = rememberCoroutineScope()
+    var saving by remember(id) { mutableStateOf(false) }
     val context = LocalContext.current
     val capacity = stringResource(R.string.folder_capacity)
     val collision = stringResource(R.string.folder_collision)
@@ -169,12 +186,14 @@ fun FolderEditor(state: LauncherState, layout: HomeLayout) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = {
-            // An uninstall while this dialog was open must not resurrect removed members.
-            val available = state.searchable.apps.values.map { it.key }.toSet()
-            val current = (state.graph.layout.layout.value.items.find { it.id == id }?.content as? FolderContent)?.apps.orEmpty()
-            if (state.saveFolder(id, FolderContent(selected.filter { it in available || it in current }, large, name.trim()))) state.folderEditor = null
-            else Toast.makeText(context, collision, Toast.LENGTH_SHORT).show()
+        confirmButton = { TextButton(enabled = !saving, onClick = {
+            saving = true
+            val draft = FolderContent(selected.toList(), large, name.trim())
+            scope.launch {
+                if (state.saveFolder(id, draft, original)) state.folderEditor = null
+                else Toast.makeText(context, collision, Toast.LENGTH_SHORT).show()
+                saving = false
+            }
         }) { Text(stringResource(R.string.folder_save)) } },
         dismissButton = { TextButton(onClick = { state.folderEditor = null }) { Text(stringResource(R.string.folder_cancel)) } },
     )

@@ -452,10 +452,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
     }
 
-    fun saveFolder(id: Long, folder: FolderContent): Boolean {
+    suspend fun saveFolder(id: Long, folder: FolderContent, original: Set<app.foyer.data.AppKey>): Boolean {
+        val missing = graph.apps.missingFolderApps(folder.apps)
         var saved = false
         graph.layout.edit { l ->
-            val result = Edits.folder(l, id, folder)
+            val removed = folder.apps.filter { (it.pkg to it.user) in graph.apps.removedPackages }.toSet()
+            val result = Edits.folderDraft(l, id, folder, original, missing + removed)
             saved = result !== l
             result
         }
