@@ -453,9 +453,9 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     var motion by remember(landing) { mutableStateOf(ReleaseMotion(landing.origin, boundedReleaseVelocity(landing.velocity, icon * 50))) }
     LaunchedEffect(landing) {
         var previous = withFrameNanos { now ->
-            // Test frame clocks have a synthetic epoch; real frames share nanoTime's epoch.
-            val elapsed = if (now >= landing.releasedNanos) (now - landing.releasedNanos) / 1_000_000_000f else 1f / 60f
-            motion = motion.step(target, elapsed.coerceAtMost(.064f))
+            // A real frame can be stamped just before input dispatch; test clocks use a different epoch.
+            val elapsed = (now - landing.releasedNanos) / 1_000_000_000f
+            motion = motion.step(target, if (elapsed < -1f) 1f / 60f else elapsed.coerceIn(0f, .064f))
             now
         }
         while (true) {
