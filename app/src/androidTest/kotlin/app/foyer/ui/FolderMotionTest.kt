@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.input.ImeAction
 import androidx.core.view.ViewCompat
@@ -90,6 +91,49 @@ class FolderMotionTest {
         }
     }
 
+    private fun assertPreviewIdentities() {
+        for (index in listOf(0, 1, 3, 4)) {
+            rule.onNodeWithTag("folder-morph-preview-$index", useUnmergedTree = true)
+                .assertContentDescriptionEquals(apps[index].toString())
+        }
+        rule.onNodeWithTag("folder-morph-preview-2", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun fiveMemberIdentityAndThemedLabels() {
+        seed(5, 2, 3)
+        evidence("five-closed")
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { state.openFolder = folderId }
+        rule.mainClock.advanceTimeBy(192)
+        assertPreviewIdentities()
+        evidence("five-opening")
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        val label = rule.onNodeWithTag("folder-label-4", useUnmergedTree = true)
+        val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        label.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+        val context = rule.activity
+        val dark = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val scheme = if (dark) androidx.compose.material3.dynamicDarkColorScheme(context)
+            else androidx.compose.material3.dynamicLightColorScheme(context)
+        assertEquals(scheme.onSurface, results.single().layoutInput.style.color)
+        evidence(if (dark) "five-dark-open" else "five-light-open")
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { state.openFolder = null }
+        rule.mainClock.advanceTimeBy(96)
+        assertPreviewIdentities()
+        evidence(if (dark) "five-dark-closing" else "five-light-closing")
+        rule.runOnUiThread { state.openFolder = folderId }
+        rule.mainClock.advanceTimeBy(64)
+        assertPreviewIdentities()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.runOnIdle {
+            assertEquals(apps.take(5), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+        }
+    }
+
     @Test fun sixMembersAtEdgesAndInterruptedMorph() {
         for ((x, y) in listOf(0 to 0, 4 to 0, 0 to 5, 4 to 5)) {
             seed(6, x, y)
@@ -146,12 +190,13 @@ class FolderMotionTest {
         rule.mainClock.autoAdvance = false
         rule.runOnUiThread { state.openFolder = null }
         rule.mainClock.advanceTimeBy(128)
-        repeat(4) { rule.onNodeWithTag("folder-morph-preview-$it", useUnmergedTree = true).assertExists() }
+        assertPreviewIdentities()
         evidence("scrolled-closing")
         rule.mainClock.advanceTimeBy(48)
         evidence("scrolled-closing-late")
         rule.runOnUiThread { state.openFolder = folderId }
         rule.mainClock.advanceTimeBy(64)
+        assertPreviewIdentities()
         evidence("scrolled-reversed")
         rule.mainClock.autoAdvance = true
         rule.waitForIdle()

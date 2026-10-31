@@ -157,7 +157,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                 BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
                     val rowHeight = maxHeight / 3
                     LazyVerticalGrid(columns = GridCells.Fixed(3), userScrollEnabled = false) {
-                        items(folder.apps, key = { it.toString() }) { key ->
+                        items(folderPreviewMembers(folder.apps.size, large = true).map { folder.apps[it.index] }, key = { it.toString() }) { key ->
                             Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 AppIcon(state.appFor(AppContent(key))?.icon, iconSize * .65f,
                                     if (interactive) memberModifier(state, item.id, key) else Modifier)
@@ -167,7 +167,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                 }
             } else {
                 BoxWithConstraints(Modifier.fillMaxSize().padding(5.dp)) {
-                    folderPreviewCenters(folder.apps.size).forEachIndexed { index, center ->
+                    folderPreviewMembers(folder.apps.size).forEach { (index, center) ->
                         val size = iconSize * .38f
                         AppIcon(state.appFor(AppContent(folder.apps[index]))?.icon, size,
                             Modifier.offset(maxWidth * center.x - size / 2, maxHeight * center.y - size / 2))
@@ -230,6 +230,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         val rect = folderPanelRect(anchor, viewport, with(density) {
             Size((icon * 4.85f).toPx(), (rowHeight * rows + 64.dp).toPx())
         })
+        val preview = folderPreviewMembers(folder.apps.size, folder.large)
         val p = expansion.value
         val current = androidx.compose.ui.geometry.lerp(anchor, rect, p)
         val radius = with(density) { if (folder.large) 24.dp.toPx() else anchor.width / 2 }
@@ -326,14 +327,14 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                         val scale = start.width / with(density) { icon.toPx() }
                                         scaleX = scale + (1f - scale) * p
                                         scaleY = scaleX
-                                        alpha = if (index < if (folder.large) 9 else 4) {
+                                        alpha = if (preview.any { it.index == index }) {
                                             if (p < 1f) 0f else 1f
                                         } else labels
                                     })
                                 }
-                                Text(app?.label ?: key.pkg, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                Text(app?.label ?: key.pkg, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(top = 6.dp).graphicsLayer {
+                                    modifier = Modifier.testTag("folder-label-$index").padding(top = 6.dp).graphicsLayer {
                                         val destination = end?.center ?: rect.center
                                         val scale = start.width / iconPx
                                         scaleX = scale + (1f - scale) * p
@@ -372,14 +373,15 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                     clipRect(clip.left - current.left, clip.top - current.top,
                         clip.right - current.left, clip.bottom - current.top) { this@drawWithContent.drawContent() }
                 }) {
-                    folder.apps.take(if (folder.large) 9 else 4).forEachIndexed { index, key ->
+                    preview.forEach { (index, _) ->
+                        val key = folder.apps[index]
                         val slot = order.indexOf(key).coerceAtLeast(0)
                         val start = folderMemberStart(anchor, folder.large, folder.apps.size, index, iconPx,
                             with(density) { 5.dp.toPx() })
                         val end = liveMemberFrames[key]?.invoke()
                             ?: folderGridIcon(gridRect, slot, rowPx, iconPx, with(density) { 8.dp.toPx() }, scroll)
                         val frame = folderMemberFrame(start, end, p)
-                        AppIcon(state.appFor(AppContent(key))?.icon, icon, Modifier.testTag("folder-morph-preview-$index")
+                        AppIcon(state.appFor(AppContent(key))?.icon, icon, Modifier.testTag("folder-morph-preview-$index").semantics { contentDescription = key.toString() }
                             .offset { IntOffset((frame.center.x - current.left - iconPx / 2).roundToInt(),
                                 (frame.center.y - current.top - iconPx / 2).roundToInt()) }
                             .graphicsLayer {

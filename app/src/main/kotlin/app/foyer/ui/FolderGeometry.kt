@@ -24,6 +24,19 @@ internal fun folderPreviewCenters(count: Int): List<Offset> = when (count.coerce
     else -> listOf(Offset(.25f, .25f), Offset(.75f, .25f), Offset(.25f, .75f), Offset(.75f, .75f))
 }
 
+/** A preview slot retains its member identity across closed and animated rendering. */
+internal data class FolderPreviewMember(val index: Int, val center: Offset)
+
+internal fun folderPreviewMembers(count: Int, large: Boolean = false): List<FolderPreviewMember> =
+    if (large) (0 until minOf(count, 9)).map { index ->
+        FolderPreviewMember(index, Offset((index % 3 + .5f) / 3, (index / 3 + .5f) / 3))
+    } else {
+        val indices = if (count < 4) (0 until count).toList() else listOf(0, 1, 3, 4)
+        folderPreviewCenters(count).zip(indices).mapNotNull { (center, index) ->
+            if (index < count) FolderPreviewMember(index, center) else null
+        }
+    }
+
 /** Keep the compact panel near its source while respecting the visible, keyboard-safe area. */
 internal fun folderPanelRect(anchor: Rect, viewport: Rect, desired: Size): Rect {
     val width = desired.width.coerceIn(0f, viewport.width.coerceAtLeast(0f))
@@ -57,12 +70,12 @@ internal fun folderDragOrder(apps: List<AppKey>, member: AppKey?, index: Int): L
 /** The closed preview uses the very same coordinates as FolderTile, not the whole feed cell. */
 internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index: Int, icon: Float, inset: Float): Rect {
     val size = icon * if (large) .65f else .38f
+    val normalized = folderPreviewMembers(count, large).find { it.index == index }?.center ?: Offset(.5f, .5f)
     val center = if (large) {
         val padding = inset * 1.6f
-        Offset(surface.left + padding + (surface.width - 2 * padding) * (index % 3 + .5f) / 3,
-            surface.top + padding + (surface.height - 2 * padding) * (index / 3 + .5f) / 3)
+        Offset(surface.left + padding + (surface.width - 2 * padding) * normalized.x,
+            surface.top + padding + (surface.height - 2 * padding) * normalized.y)
     } else {
-        val normalized = folderPreviewCenters(count).getOrNull(index) ?: Offset(.5f, .5f)
         Offset(surface.left + inset + (surface.width - 2 * inset) * normalized.x,
             surface.top + inset + (surface.height - 2 * inset) * normalized.y)
     }

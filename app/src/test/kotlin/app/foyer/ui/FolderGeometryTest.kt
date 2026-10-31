@@ -14,7 +14,7 @@ class FolderGeometryTest {
     @Test fun offscreenPreviewDestinationsRemainUnclippedAndReversible() {
         val grid = Rect(20f, 100f, 320f, 400f)
         val anchor = Rect(300f, 600f, 350f, 650f)
-        for (index in 0..3) {
+        for (index in listOf(0, 1, 3, 4)) {
             val start = folderMemberStart(anchor, false, 30, index, 50f, 5f)
             val end = folderGridIcon(grid, index, 90f, 50f, 8f, scroll = 720f)
             assertEquals(-612f + index / 3 * 90f, end.top)
@@ -25,6 +25,25 @@ class FolderGeometryTest {
             assertEquals((start.center.y + end.center.y) / 2, halfway.center.y, .001f)
             // Direction changes use the same progress, not a new clipped destination.
             assertEquals(halfway, folderMemberFrame(start, end, .5f))
+        }
+    }
+
+    @Test fun previewSlotsPreserveOpenGridCellsWithoutChangingStoredOrder() {
+        val expected = listOf(emptyList(), listOf(0), listOf(0, 1), listOf(0, 1, 2),
+            listOf(0, 1, 3), listOf(0, 1, 3, 4), listOf(0, 1, 3, 4))
+        val surface = Rect(0f, 0f, 100f, 100f)
+        for (count in 0..12) {
+            val members = folderPreviewMembers(count)
+            assertEquals(expected[minOf(count, 6)], members.map { it.index })
+            members.forEach { (index, center) ->
+                assertEquals(Offset(10 + 80 * center.x, 10 + 80 * center.y),
+                    folderMemberStart(surface, false, count, index, 50f, 10f).center)
+                if (count >= 4) {
+                    assertEquals(index % 3, if (center.x < .5f) 0 else 1)
+                    assertEquals(index / 3, if (center.y < .5f) 0 else 1)
+                }
+            }
+            assertEquals((0 until minOf(count, 9)).toList(), folderPreviewMembers(count, true).map { it.index })
         }
     }
 
