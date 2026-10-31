@@ -41,7 +41,9 @@ To build from source, run `./gradlew :app:installRelease`. A local build is sign
 - Long-press an app to see its shortcuts and actions. Tap `+` to pin a shortcut.
 - Long-press an item and drag it to move it.
 - Long-press a widget, then drag a handle of its frame to resize it.
-- Long-press an empty area to add widgets or open settings.
+- Long-press an empty area to create a folder, add widgets or open settings.
+- Long-press a folder and choose "Manage folder" to add or remove apps, reorder with "Up", rename it (clear the field for no title), or switch size. Remove the folder through its long-press menu.
+- Small folders open a scrolling app grid. Large folders occupy 2 × 2 cells and launch up to nine apps directly. Expansion needs free cells beside and below the folder; it never moves neighbors. Folders stay in the feed and may remain empty.
 
 </details>
 
