@@ -11,6 +11,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderGeometryTest {
+    @Test fun offscreenPreviewDestinationsRemainUnclippedAndReversible() {
+        val grid = Rect(20f, 100f, 320f, 400f)
+        val anchor = Rect(300f, 600f, 350f, 650f)
+        for (index in 0..3) {
+            val start = folderMemberStart(anchor, false, 30, index, 50f, 5f)
+            val end = folderGridIcon(grid, index, 90f, 50f, 8f, scroll = 720f)
+            assertEquals(-612f + index / 3 * 90f, end.top)
+            assertEquals(50f, end.width)
+            assertEquals(start, folderMemberFrame(start, end, 0f))
+            assertEquals(end, folderMemberFrame(start, end, 1f))
+            val halfway = folderMemberFrame(start, end, .5f)
+            assertEquals((start.center.y + end.center.y) / 2, halfway.center.y, .001f)
+            // Direction changes use the same progress, not a new clipped destination.
+            assertEquals(halfway, folderMemberFrame(start, end, .5f))
+        }
+    }
+
+    @Test fun edgeScrollUsesKeyboardSizedViewportAndStopsOutsidePanelLane() {
+        val grid = Rect(20f, 100f, 320f, 220f)
+        assertEquals(-840f, folderEdgeScroll(Offset(100f, 100f), grid, 56f, 840f), .001f)
+        assertEquals(840f, folderEdgeScroll(Offset(100f, 220f), grid, 56f, 840f), .001f)
+        assertEquals(420f, folderEdgeScroll(Offset(100f, 192f), grid, 56f, 840f), .001f)
+        assertEquals(0f, folderEdgeScroll(Offset(100f, 160f), grid, 56f, 840f), .001f)
+        assertEquals(0f, folderEdgeScroll(Offset(10f, 215f), grid, 56f, 840f), .001f)
+        assertEquals(0f, folderEdgeScroll(Offset(100f, 300f), grid, 56f, 840f), .001f)
+    }
+
     @Test fun dockOccludesScrolledFoldersAcrossItsEntireSurface() {
         val viewport = Rect(0f, 0f, 400f, 800f)
         val dock = Rect(0f, 600f, 400f, 800f)

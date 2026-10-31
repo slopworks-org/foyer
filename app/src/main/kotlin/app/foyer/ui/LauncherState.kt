@@ -452,6 +452,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
     }
 
+    fun folderOwnsDrag(s: DragSession): Boolean = openFolder != null &&
+        folderPanelBounds?.contains(s.anchor) == true
+
     fun targetFor(s: DragSession): DropTarget? {
         val root = rootCoords ?: return null
         val p = s.anchor

@@ -289,6 +289,7 @@ private fun Feed(
         while (true) {
             withFrameNanos { }
             val s = state.drag ?: break
+            if (state.folderOwnsDrag(s)) continue
             val vp = state.viewportCoords?.takeIf { it.isAttached } ?: continue
             val root = state.rootCoords ?: continue
             val y = vp.localPositionOf(root, s.pointer).y

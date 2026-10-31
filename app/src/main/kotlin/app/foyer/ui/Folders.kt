@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -22,16 +23,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.LocalPinnableContainer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.ImeAction
@@ -92,6 +98,12 @@ private fun memberModifier(state: LauncherState, id: Long, key: AppKey, overlay:
     DisposableEffect(id, key) { onDispose { bounds.remove(id to key) } }
     val accessibleActions = folderTransferActions(state, key, sourceFolder = id)
     val dragged = (state.drag?.source as? DragSource.Member)?.let { it.folderId == id && it.key == key } == true
+    // Keep the pointer-owning lazy item alive when edge scrolling moves it offscreen.
+    val container = LocalPinnableContainer.current
+    DisposableEffect(dragged, container) {
+        val pin = if (dragged) container?.pin() else null
+        onDispose { pin?.release() }
+    }
     return Modifier.graphicsLayer { alpha = if (dragged) 0f else 1f }
         .onGloballyPositioned { bounds[id to key] = it.boundsInRoot() }
         .itemGestures(ItemGestureCallbacks(
@@ -225,8 +237,28 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         val labels = ((p - .45f) / .55f).coerceIn(0f, 1f)
         val drag = state.drag
         val gridState = key(id) { rememberLazyGridState() }
+        val rowPx = with(density) { rowHeight.toPx() }
+        val iconPx = with(density) { icon.toPx() }
+        val gridRect = Rect(rect.left + with(density) { 8.dp.toPx() }, rect.top + with(density) { 12.dp.toPx() },
+            rect.right - with(density) { 8.dp.toPx() }, rect.bottom - with(density) { 52.dp.toPx() })
+        val scroll = gridState.firstVisibleItemIndex / 3 * rowPx + gridState.firstVisibleItemScrollOffset
         SideEffect {
-            state.folderGridScroll = gridState.firstVisibleItemIndex / 3 * with(density) { rowHeight.toPx() } + gridState.firstVisibleItemScrollOffset
+            state.folderGridScroll = scroll
+        }
+        LaunchedEffect(id, drag != null) {
+            val zone = with(density) { 56.dp.toPx() }
+            val speed = with(density) { 840.dp.toPx() }
+            var previous = withFrameNanos { it }
+            while (state.drag != null) {
+                val now = withFrameNanos { it }
+                val seconds = ((now - previous) / 1_000_000_000f).coerceAtMost(.05f)
+                previous = now
+                val session = state.drag ?: break
+                if (!state.folderOwnsDrag(session)) continue
+                val grid = state.folderGridBounds ?: continue
+                val delta = folderEdgeScroll(session.pointer, grid, zone, speed) * seconds
+                if (delta != 0f) gridState.scrollBy(delta)
+            }
         }
         val target = drag?.let { state.targetFor(it) } as? DropTarget.Folder
         val member = (drag?.source as? DragSource.Member)?.takeIf { it.folderId == id }?.key
@@ -240,9 +272,10 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                 .requiredSize(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
                 .offset { IntOffset((rect.left - current.left).roundToInt(), (rect.top - current.top).roundToInt()) }
                 .padding(horizontal = 8.dp).padding(top = 12.dp, bottom = 4.dp)) {
-                LazyVerticalGrid(columns = GridCells.Fixed(3), state = gridState, modifier = Modifier.weight(1f).fillMaxWidth()
+                LazyVerticalGrid(columns = GridCells.Fixed(3), state = gridState, userScrollEnabled = drag == null,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
                     .onGloballyPositioned {
-                        state.folderGridBounds = it.boundsInRoot()
+                        state.folderGridBounds = Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat()))
                         state.folderRowHeight = with(density) { rowHeight.toPx() }
                     }) {
                     items(order, key = { it?.toString() ?: "folder-insertion" }) { key ->
@@ -269,7 +302,10 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                 .then(memberModifier(state, id, key, overlay = true, iconCenter = end?.center)).height(rowHeight)
                                 .graphicsLayer { alpha = if (member == key) 0f else 1f },
                                 horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(Modifier.padding(top = 8.dp).size(icon).onGloballyPositioned { end = it.boundsInRoot() }) {
+                                Box(Modifier.padding(top = 8.dp).size(icon).onGloballyPositioned {
+                                    // boundsInRoot intersects ancestor clips, corrupting morph destinations.
+                                    end = Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat()))
+                                }) {
                                     AppIcon(app?.icon, icon, Modifier.graphicsLayer {
                                         val destination = end?.center ?: rect.center
                                         translationX = (start.center.x - destination.x) * (1f - p) +
@@ -279,12 +315,26 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                         val scale = start.width / with(density) { icon.toPx() }
                                         scaleX = scale + (1f - scale) * p
                                         scaleY = scaleX
-                                        alpha = if (index < if (folder.large) 9 else 4) 1f else labels
+                                        alpha = if (index < if (folder.large) 9 else 4) {
+                                            if (p < 1f) 0f else 1f
+                                        } else labels
                                     })
                                 }
                                 Text(app?.label ?: key.pkg, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(top = 6.dp).graphicsLayer { alpha = labels })
+                                    modifier = Modifier.padding(top = 6.dp).graphicsLayer {
+                                        val destination = end?.center ?: rect.center
+                                        val scale = start.width / iconPx
+                                        scaleX = scale + (1f - scale) * p
+                                        scaleY = scaleX
+                                        transformOrigin = TransformOrigin(.5f, 0f)
+                                        translationX = (start.center.x - destination.x) * (1f - p) +
+                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value)
+                                        translationY = (start.center.y - destination.y) * (1f - p) +
+                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value) +
+                                            (scaleX - 1f) * (iconPx / 2 + with(density) { 6.dp.toPx() })
+                                        alpha = labels
+                                    })
                             }
                         }
                     }
@@ -302,6 +352,31 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                             field()
                         }
                     }, modifier = Modifier.fillMaxWidth().height(48.dp).graphicsLayer { alpha = labels })
+            }
+            // Preview members must exist independently of lazy composition: after scrolling,
+            // their grid slots can be far outside the viewport when closing or reversing.
+            if (p < 1f) {
+                val clip = androidx.compose.ui.geometry.lerp(current, gridRect, p)
+                Box(Modifier.fillMaxSize().drawWithContent {
+                    clipRect(clip.left - current.left, clip.top - current.top,
+                        clip.right - current.left, clip.bottom - current.top) { this@drawWithContent.drawContent() }
+                }) {
+                    folder.apps.take(if (folder.large) 9 else 4).forEachIndexed { index, key ->
+                        val slot = order.indexOf(key).coerceAtLeast(0)
+                        val start = folderMemberStart(anchor, folder.large, folder.apps.size, index, iconPx,
+                            with(density) { 5.dp.toPx() })
+                        val end = folderGridIcon(gridRect, slot, rowPx, iconPx, with(density) { 8.dp.toPx() }, scroll)
+                        val frame = folderMemberFrame(start, end, p)
+                        AppIcon(state.appFor(AppContent(key))?.icon, icon, Modifier.testTag("folder-morph-preview-$index")
+                            .offset { IntOffset((frame.center.x - current.left - iconPx / 2).roundToInt(),
+                                (frame.center.y - current.top - iconPx / 2).roundToInt()) }
+                            .graphicsLayer {
+                                scaleX = frame.width / iconPx
+                                scaleY = scaleX
+                                alpha = if (member == key) 0f else 1f
+                            })
+                    }
+                }
             }
         }
     }

@@ -68,3 +68,24 @@ internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index:
     }
     return Rect(center - Offset(size / 2, size / 2), Size(size, size))
 }
+
+/** Unclipped slot geometry also works for members that the lazy grid has not composed. */
+internal fun folderGridIcon(grid: Rect, index: Int, rowHeight: Float, icon: Float, topPadding: Float, scroll: Float): Rect =
+    Rect(Offset(grid.left + grid.width * (index % 3 + .5f) / 3 - icon / 2,
+        grid.top + index / 3 * rowHeight + topPadding - scroll), Size(icon, icon))
+
+internal fun folderMemberFrame(start: Rect, end: Rect, progress: Float): Rect =
+    androidx.compose.ui.geometry.lerp(start, end, progress)
+
+/** Only scroll inside the grid's horizontal lane and the panel's visible vertical extent. */
+internal fun folderEdgeScroll(pointer: Offset, grid: Rect, zone: Float, speed: Float): Float {
+    if (grid.height <= 0f || pointer.x < grid.left || pointer.x >= grid.right) return 0f
+    val edge = zone.coerceAtMost(grid.height / 2)
+    if (edge <= 0f) return 0f
+    return when {
+        pointer.y < grid.top - edge || pointer.y > grid.bottom + edge -> 0f
+        pointer.y < grid.top + edge -> -speed * ((grid.top + edge - pointer.y) / edge).coerceIn(0f, 1f)
+        pointer.y > grid.bottom - edge -> speed * ((pointer.y - grid.bottom + edge) / edge).coerceIn(0f, 1f)
+        else -> 0f
+    }
+}
