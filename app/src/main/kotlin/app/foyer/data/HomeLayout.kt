@@ -35,6 +35,14 @@ data class ShortcutContent(val pkg: String, val shortcutId: String, val user: Lo
 @SerialName("widget")
 data class WidgetContent(val widgetId: Int, val provider: String) : Content
 
+@Serializable
+@SerialName("folder")
+data class FolderContent(
+    val apps: List<AppKey> = emptyList(),
+    val large: Boolean = false,
+    val name: String = "",
+) : Content
+
 /**
  * Something placed on the home screen. Every item owns explicit cells, so removing or
  * uninstalling one never shifts the others: the feed is a place, not a list.
@@ -131,11 +139,17 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
 
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
-    fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout =
-        l.copy(items = l.items + HomeItem(l.nextId, content, x, y, w, h, dock), nextId = l.nextId + 1)
+    fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout {
+        val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
+        val height = if (content is FolderContent) span else h
+        if (content is FolderContent && (dock || content.apps.distinct() != content.apps || content.large && content.apps.size > 9)) return l
+        if (dock) { if (!l.dockSlotFree(x)) return l } else if (!l.isFree(x, y, span, height)) return l
+        return l.copy(items = l.items + HomeItem(l.nextId, content, x, y, span, height, dock), nextId = l.nextId + 1)
+    }
 
     fun addFirstFree(l: HomeLayout, content: Content, w: Int = 1, h: Int = 1): HomeLayout {
-        val (x, y) = l.firstFree(w, h)
+        val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
+        val (x, y) = l.firstFree(span, if (content is FolderContent) span else h)
         return add(l, content, x, y, w, h)
     }
 
@@ -144,19 +158,57 @@ object Edits {
 
     fun remove(l: HomeLayout, id: Long) = l.copy(items = l.items.filterNot { it.id == id })
 
-    fun move(l: HomeLayout, id: Long, x: Int, y: Int, dock: Boolean) =
-        l.copy(items = l.items.map { if (it.id == id) it.copy(x = x, y = y, dock = dock) else it })
+    fun move(l: HomeLayout, id: Long, x: Int, y: Int, dock: Boolean): HomeLayout {
+        val item = l.items.find { it.id == id } ?: return l
+        if (dock && (item.content is FolderContent || item.content is WidgetContent)) return l
+        if (dock) { if (!l.dockSlotFree(x, id)) return l } else if (!l.isFree(x, y, item.w, item.h, id)) return l
+        return l.copy(items = l.items.map { if (it.id == id) it.copy(x = x, y = y, dock = dock) else it })
+    }
 
-    fun resize(l: HomeLayout, id: Long, x: Int, y: Int, w: Int, h: Int) =
-        l.copy(items = l.items.map { if (it.id == id) it.copy(x = x, y = y, w = w, h = h) else it })
+    fun resize(l: HomeLayout, id: Long, x: Int, y: Int, w: Int, h: Int): HomeLayout {
+        if (l.items.find { it.id == id }?.content !is WidgetContent || !l.isFree(x, y, w, h, id)) return l
+        return l.copy(items = l.items.map { if (it.id == id) it.copy(x = x, y = y, w = w, h = h) else it })
+    }
 
-    fun swap(l: HomeLayout, a: HomeItem, b: HomeItem) = l.copy(
-        items = l.items.map {
-            when (it.id) {
-                a.id -> it.copy(x = b.x, y = b.y, dock = b.dock)
-                b.id -> it.copy(x = a.x, y = a.y, dock = a.dock)
-                else -> it
-            }
+    /** Reject invalid edits atomically: membership and occupied cells never change on failure. */
+    fun folder(l: HomeLayout, id: Long, folder: FolderContent): HomeLayout {
+        val item = l.items.find { it.id == id && it.content is FolderContent && !it.dock } ?: return l
+        val span = if (folder.large) 2 else 1
+        if (folder.apps != folder.apps.distinct() || folder.large && folder.apps.size > 9 ||
+            !l.isFree(item.x, item.y, span, span, id)) return l
+        return l.copy(items = l.items.map { if (it.id == id) it.copy(content = folder, w = span, h = span) else it })
+    }
+
+    fun forgetProfiles(l: HomeLayout, users: Set<Long>): HomeLayout = l.copy(
+        items = l.items.map { item ->
+            val c = item.content
+            if (c is FolderContent) item.copy(content = c.copy(apps = c.apps.filterNot { it.user in users })) else item
         },
     )
+
+    fun forgetPackage(l: HomeLayout, pkg: String, user: Long): HomeLayout = l.copy(
+        items = l.items.mapNotNull { item ->
+            when (val c = item.content) {
+                is AppContent -> item.takeUnless { c.app.pkg == pkg && c.app.user == user }
+                is ShortcutContent -> item.takeUnless { c.pkg == pkg && c.user == user }
+                is WidgetContent -> item.takeUnless { c.provider.startsWith("$pkg/") }
+                is FolderContent -> item.copy(content = c.copy(apps = c.apps.filterNot { it.pkg == pkg && it.user == user }))
+            }
+        },
+        aliases = l.aliases.filterKeys { !it.startsWith("$user/$pkg/") },
+    )
+
+    fun swap(l: HomeLayout, a: HomeItem, b: HomeItem): HomeLayout {
+        if (a.w != b.w || a.h != b.h ||
+            a.content is FolderContent && b.dock || b.content is FolderContent && a.dock) return l
+        return l.copy(
+            items = l.items.map {
+                when (it.id) {
+                    a.id -> it.copy(x = b.x, y = b.y, dock = b.dock)
+                    b.id -> it.copy(x = a.x, y = a.y, dock = a.dock)
+                    else -> it
+                }
+            },
+        )
+    }
 }
