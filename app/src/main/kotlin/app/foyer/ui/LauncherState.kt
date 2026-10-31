@@ -72,6 +72,9 @@ sealed interface DragSource {
     data class New(val content: Content) : DragSource
 }
 
+internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.AppKey,
+    val icon: Icon?, val origin: Offset, val scale: Float)
+
 @Stable
 class DragSession(
     val source: DragSource,
@@ -80,6 +83,7 @@ class DragSession(
     val anchorOffset: Offset,
     pointer: Offset,
 ) {
+    var visualScale = 1f
     var pointer by mutableStateOf(pointer)
     val anchor get() = pointer + anchorOffset
     val content: Content get() = when (source) {
@@ -141,7 +145,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var folderGridBounds: androidx.compose.ui.geometry.Rect? = null
     var folderRowHeight = 1f
     var folderGridScroll = 0f
-    val memberDropOrigins = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, Offset>()
+    internal var folderLanding by mutableStateOf<FolderLanding?>(null)
+    internal val folderMemberFrames = mutableMapOf<Pair<Long, app.foyer.data.AppKey>, () -> FolderMemberVisual?>()
     val memberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
     val panelMemberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
     var folderPanelBounds: androidx.compose.ui.geometry.Rect? = null
@@ -427,14 +432,17 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         hoverJob?.cancel()
         hoverFolder = null
         val key = (s.content as? AppContent)?.app
+        val release = s.anchor
+        val releaseScale = s.visualScale
         scope.launch {
             val missing = if (key == null) emptySet() else graph.apps.missingFolderApps(listOf(key))
+            if (drag !== s) return@launch
             graph.layout.edit { current ->
                 val available = key == null || key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages
                 val plan = if (available && target != null) plan(s, target, current) else null
                 if (plan != null) {
                     if (target is DropTarget.Folder && key != null) {
-                        if (target.id == openFolder) memberDropOrigins[target.id to key] = s.anchor
+                        folderLanding = FolderLanding(target.id, key, s.icon, release, releaseScale)
                     } else dropOrigins[plan.second] = s.anchor
                     plan.first
                 } else {

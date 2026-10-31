@@ -160,7 +160,9 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                         items(folderPreviewMembers(folder.apps.size, large = true).map { folder.apps[it.index] }, key = { it.toString() }) { key ->
                             Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 AppIcon(state.appFor(AppContent(key))?.icon, iconSize * .65f,
-                                    if (interactive) memberModifier(state, item.id, key) else Modifier)
+                                    (if (interactive) memberModifier(state, item.id, key) else Modifier).graphicsLayer {
+                                        alpha = if (state.folderLanding?.let { it.folderId == item.id && it.key == key } == true) 0f else 1f
+                                    })
                             }
                         }
                     }
@@ -170,7 +172,9 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                     folderPreviewMembers(folder.apps.size).forEach { (index, center) ->
                         val size = iconSize * .38f
                         AppIcon(state.appFor(AppContent(folder.apps[index]))?.icon, size,
-                            Modifier.offset(maxWidth * center.x - size / 2, maxHeight * center.y - size / 2))
+                            Modifier.offset(maxWidth * center.x - size / 2, maxHeight * center.y - size / 2).graphicsLayer {
+                                alpha = if (state.folderLanding?.let { it.folderId == item.id && it.key == folder.apps[index] } == true) 0f else 1f
+                            })
                     }
                 }
             }
@@ -216,7 +220,6 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
             state.folderTransitionId = null
             state.folderPanelBounds = null
             state.folderGridBounds = null
-            state.memberDropOrigins.keys.filter { it.first == id }.forEach { state.memberDropOrigins.remove(it) }
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -295,23 +298,20 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                             val start = folderMemberStart(anchor, folder.large, folder.apps.size, index,
                                 with(density) { icon.toPx() }, with(density) { 5.dp.toPx() })
                             var end by remember(key) { mutableStateOf<Rect?>(null) }
-                            val landing = remember(key) { Animatable(1f) }
-                            val origin = state.memberDropOrigins[id to key]
-                            DisposableEffect(key, origin) {
-                                // Keep lazy placement and landing motion continuous when the
-                                // independent preview takes over during an interrupted drop.
-                                liveMemberFrames[key] = {
-                                    end?.let { bounds ->
-                                        bounds.translate(((origin ?: bounds.center) - bounds.center) * (1f - landing.value))
+                            DisposableEffect(key, start) {
+                                // Both the preview morph and the root landing follow live lazy placement.
+                                liveMemberFrames[key] = { end }
+                                state.folderMemberFrames[id to key] = {
+                                    end?.let {
+                                        val value = expansion.value
+                                        FolderMemberVisual(folderMemberFrame(start, it, value),
+                                            if (preview.any { member -> member.index == index }) 1f
+                                            else ((value - .45f) / .55f).coerceIn(0f, 1f))
                                     }
                                 }
-                                onDispose { liveMemberFrames.remove(key) }
-                            }
-                            LaunchedEffect(origin) {
-                                if (origin != null) {
-                                    landing.snapTo(0f)
-                                    landing.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
-                                    state.memberDropOrigins.remove(id to key)
+                                onDispose {
+                                    liveMemberFrames.remove(key)
+                                    state.folderMemberFrames.remove(id to key)
                                 }
                             }
                             Column(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
@@ -324,14 +324,12 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                 }) {
                                     AppIcon(app?.icon, icon, Modifier.graphicsLayer {
                                         val destination = end?.center ?: rect.center
-                                        translationX = (start.center.x - destination.x) * (1f - p) +
-                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value) * p
-                                        translationY = (start.center.y - destination.y) * (1f - p) +
-                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value) * p
+                                        translationX = (start.center.x - destination.x) * (1f - p)
+                                        translationY = (start.center.y - destination.y) * (1f - p)
                                         val scale = start.width / with(density) { icon.toPx() }
                                         scaleX = scale + (1f - scale) * p
                                         scaleY = scaleX
-                                        alpha = if (preview.any { it.index == index }) {
+                                        alpha = if (state.folderLanding?.let { it.folderId == id && it.key == key } == true) 0f else if (preview.any { it.index == index }) {
                                             if (p < 1f) 0f else 1f
                                         } else labels
                                     })
@@ -344,10 +342,8 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                         scaleX = scale + (1f - scale) * p
                                         scaleY = scaleX
                                         transformOrigin = TransformOrigin(.5f, 0f)
-                                        translationX = (start.center.x - destination.x) * (1f - p) +
-                                            ((origin?.x ?: destination.x) - destination.x) * (1f - landing.value) * p
+                                        translationX = (start.center.x - destination.x) * (1f - p)
                                         translationY = (start.center.y - destination.y) * (1f - p) +
-                                            ((origin?.y ?: destination.y) - destination.y) * (1f - landing.value) * p +
                                             (scaleX - 1f) * (iconPx / 2 + with(density) { 6.dp.toPx() })
                                         alpha = labels
                                     })
@@ -391,11 +387,50 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                             .graphicsLayer {
                                 scaleX = frame.width / iconPx
                                 scaleY = scaleX
-                                alpha = if (member == key) 0f else 1f
+                                alpha = if (member == key || state.folderLanding?.let { it.folderId == id && it.key == key } == true) 0f else 1f
                             })
                     }
                 }
             }
         }
     }
+}
+
+/** One root-space flight owns the icon until the destination is ready to draw it. */
+@Composable
+internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
+    val landing = state.folderLanding ?: return
+    val progress = remember(landing) { Animatable(0f) }
+    val density = LocalDensity.current
+    val icon = with(density) { state.iconSize.toPx() }
+    LaunchedEffect(landing) {
+        progress.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+        if (state.folderLanding === landing) state.folderLanding = null
+    }
+    DisposableEffect(landing) {
+        onDispose { if (state.folderLanding === landing) state.folderLanding = null }
+    }
+    val folder = layout.items.find { it.id == landing.folderId }?.content as? FolderContent ?: return
+    val surface = state.folderSurfaceBounds[landing.folderId] ?: return
+    val index = folder.apps.indexOf(landing.key)
+    val visible = folderPreviewMembers(folder.apps.size, folder.large).any { it.index == index }
+    val panel = state.folderTransitionId == landing.folderId
+    val memberVisual = if (panel) state.folderMemberFrames[landing.folderId to landing.key]?.invoke() else null
+    val end = if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
+            folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll)
+        }
+        else folderMemberStart(surface, folder.large, folder.apps.size, index, icon, with(density) { 5.dp.toPx() })
+    val destination = end ?: surface
+    val destinationVisible = if (panel) state.folderPanelBounds?.contains(destination.center) == true else visible
+    val destinationAlpha = if (destinationVisible) memberVisual?.alpha ?: 1f else 0f
+    val startSize = icon * landing.scale
+    val start = Rect(landing.origin - Offset(startSize / 2, startSize / 2), Size(startSize, startSize))
+    val frame = folderMemberFrame(start, destination, progress.value)
+    AppIcon(landing.icon, state.iconSize, Modifier.testTag("folder-landing")
+        .offset { IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt()) }
+        .graphicsLayer {
+            scaleX = frame.width / icon
+            scaleY = scaleX
+            alpha = 1f + (destinationAlpha - 1f) * ((progress.value - .65f) / .35f).coerceIn(0f, 1f)
+        })
 }

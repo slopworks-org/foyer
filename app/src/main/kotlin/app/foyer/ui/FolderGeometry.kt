@@ -106,3 +106,5 @@ internal fun folderEdgeScroll(pointer: Offset, grid: Rect, zone: Float, speed: F
 /** Only search owns the dock keyboard lift, including its opening and closing frames. */
 internal fun dockKeyboardLift(lift: Float, active: Boolean, progress: Float, target: Float, folderVisible: Boolean = false): Float =
     if (active || target > 0f || progress > 0f && !folderVisible) lift else 0f
+
+internal data class FolderMemberVisual(val bounds: Rect, val alpha: Float)

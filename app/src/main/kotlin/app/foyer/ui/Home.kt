@@ -846,6 +846,7 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
         Modifier
             .offset { (s.anchor - Offset(half, half)).let { IntOffset(it.x.roundToInt(), it.y.roundToInt()) } }
             .graphicsLayer {
+                s.visualScale = lift.value
                 scaleX = lift.value
                 scaleY = lift.value
             },
