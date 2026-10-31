@@ -143,6 +143,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     val folderSurfaceBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
     var folderTransitionId by mutableStateOf<Long?>(null)
     var folderGridBounds: androidx.compose.ui.geometry.Rect? = null
+    var folderGridColumns = 2
     var folderRowHeight = 1f
     var folderGridScroll = 0f
     internal var folderContentViewport by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
@@ -477,7 +478,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 if (s.content !is AppContent) return null
                 val id = openFolder ?: return null
                 val folder = layout.items.find { it.id == id }?.content as? FolderContent ?: return null
-                val index = folderGridBounds?.let { folderInsertionIndex(p, it, folderRowHeight, folder.apps.size, folderGridScroll) } ?: folder.apps.size
+                val index = folderGridBounds?.let { folderInsertionIndex(p, it, folderRowHeight, folder.apps.size, folderGridScroll, folder.large, folderGridColumns) } ?: folder.apps.size
                 val source = (s.source as? DragSource.Member)?.takeIf { it.folderId == id }
                 return DropTarget.Folder(id, folderInsertionForMember(index, folder.apps.indexOf(source?.key)))
             }

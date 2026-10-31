@@ -9,6 +9,31 @@ class FolderDragTest {
         Edits.add(HomeLayout(), FolderContent(apps, large), 0, 0)
     private fun members(l: HomeLayout, id: Long = 1) = (l.items.first { it.id == id }.content as FolderContent).apps
 
+    @Test fun fifthExternalAdditionAndModeChanges() {
+        val four = (1..4).map(::key)
+        val expected = listOf(key(1), key(2), key(5), key(3), key(4))
+        for (index in listOf(4, Int.MAX_VALUE)) {
+            val search = Edits.transferApp(base(apps = four), key(5), targetFolder = 1, index = index)
+            assertEquals(expected, members(search))
+            val desktop = Edits.add(base(apps = four), AppContent(key(5)), 3, 0)
+            assertEquals(expected, members(Edits.transferApp(desktop, key(5), sourceItem = 2, targetFolder = 1, index = index)))
+            val other = Edits.add(base(apps = four), FolderContent(listOf(key(5))), 3, 0)
+            val moved = Edits.transferApp(other, key(5), sourceFolder = 2, targetFolder = 1, index = index)
+            assertEquals(expected, members(moved))
+            assertTrue(members(moved, 2).isEmpty())
+        }
+        val explicit = Edits.transferApp(base(apps = four), key(5), targetFolder = 1, index = 1)
+        assertEquals(listOf(key(1), key(5), key(2), key(3), key(4)), members(explicit))
+        val large = Edits.transferApp(base(true, four), key(5), targetFolder = 1)
+        assertEquals(four + key(5), members(large))
+        val shrunk = Edits.folder(large, 1, (large.items.first().content as FolderContent).copy(large = false))
+        assertEquals(members(large), members(shrunk))
+        val enlarged = Edits.folder(shrunk, 1, (shrunk.items.first().content as FolderContent).copy(large = true))
+        assertEquals(members(large), members(enlarged))
+        val six = Edits.transferApp(explicit, key(6), targetFolder = 1)
+        assertEquals(members(explicit) + key(6), members(six))
+    }
+
     @Test fun desktopMovesSearchAddsAndProfilesRemainDistinct() {
         val initial = Edits.add(base(), AppContent(key(1)), 3, 0)
         val moved = Edits.transferApp(initial, key(1), sourceItem = 2, targetFolder = 1)

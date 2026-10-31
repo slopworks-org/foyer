@@ -111,6 +111,61 @@ class FolderMotionTest {
         rule.onNodeWithTag("folder-morph-preview-2", useUnmergedTree = true).assertDoesNotExist()
     }
 
+    @Test fun adaptiveGridEvidence() {
+        for (opened in listOf(false, true)) for (count in 3..4) {
+            seed(count, 2, 3)
+            if (opened) open()
+            rule.mainClock.autoAdvance = false
+            rule.runOnUiThread {
+                val key = apps[count]
+                val bounds = if (opened) state.folderPanelBounds!! else state.folderBounds[folderId]!!
+                val release = Offset(bounds.center.x, bounds.bottom - 2)
+                state.startDrag(DragSession(DragSource.New(AppContent(key)), state.appFor(AppContent(key))?.icon,
+                    Offset.Zero, release))
+                state.endDrag()
+            }
+            rule.waitUntil(5_000) {
+                rule.mainClock.advanceTimeBy(16)
+                (state.graph.layout.layout.value.items.first().content as FolderContent).apps.size == count + 1
+            }
+            for (frame in 0..24) {
+                rule.mainClock.advanceTimeBy(16)
+                evidence("adaptive-${if (opened) "open" else "closed"}-$count-%02d".format(frame))
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+            rule.runOnIdle {
+                val actual = (state.graph.layout.layout.value.items.first().content as FolderContent).apps
+                assertEquals(if (count == 4) listOf(apps[0], apps[1], apps[4], apps[2], apps[3]) else apps.take(4), actual)
+            }
+            if (count == 3) {
+                evidence("adaptive-four-${if (opened) "open" else "closed"}")
+                if (!opened) open()
+                val labels = (0..3).map { rule.onNodeWithTag("folder-label-$it", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }
+                assertEquals(labels[0].center.y, labels[1].center.y, 1f)
+                assertEquals(labels[2].center.y, labels[3].center.y, 1f)
+                assertTrue(labels[2].top > labels[0].top)
+            }
+            if (count == 4) {
+                if (!opened) open()
+                val cells = (0..4).map { rule.onNodeWithTag("folder-label-$it", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }
+                assertEquals(cells[0].center.y, cells[2].center.y, 1f)
+                assertTrue(cells[3].top > cells[0].top)
+                rule.runOnIdle {
+                    state.graph.layout.edit { Edits.transferApp(it, apps[5], targetFolder = folderId) }
+                    state.graph.layout.edit { Edits.transferApp(it, apps[5], sourceFolder = folderId, targetFolder = folderId, index = 0) }
+                }
+                rule.waitForIdle()
+                rule.runOnIdle {
+                    assertEquals(listOf(apps[5], apps[0], apps[1], apps[4], apps[2], apps[3]),
+                        (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+                }
+            }
+            rule.runOnIdle { state.openFolder = null }
+            rule.waitForIdle()
+        }
+    }
+
     @Test fun threeCorrectionsEvidence() {
         seed(3, 2, 3)
         val caption = rule.onNodeWithTag("folder-caption-$folderId", useUnmergedTree = true)
@@ -213,7 +268,7 @@ class FolderMotionTest {
                 rule.waitForIdle()
                 rule.runOnIdle {
                     assertNull(state.folderLanding)
-                    assertEquals(apps.take(count + 1), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+                    assertEquals(if (!large && count == 4) listOf(apps[0], apps[1], apps[4], apps[2], apps[3]) else apps.take(count + 1), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
                 }
             }
         }

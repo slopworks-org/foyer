@@ -195,7 +195,12 @@ object Edits {
         if (target != null) {
             if (sourceFolder != targetFolder && (key in target.apps || target.large && target.apps.size >= 9)) return l
             val members = target.apps - key
-            val insertion = if (sourceFolder == targetFolder && target.apps.indexOf(key) < index && index != Int.MAX_VALUE) index - 1 else index
+            val insertion = when {
+                sourceFolder == targetFolder && target.apps.indexOf(key) < index && index != Int.MAX_VALUE -> index - 1
+                // Expanding a small 2x2 grid leaves its existing members in the same cells.
+                sourceFolder != targetFolder && !target.large && target.apps.size == 4 && index >= 4 -> 2
+                else -> index
+            }
             val updated = members.toMutableList().apply { add(insertion.coerceIn(0, size), key) }
             var result = folder(l, targetFolder, target.copy(apps = updated))
             if (sourceItem != null) result = remove(result, sourceItem)

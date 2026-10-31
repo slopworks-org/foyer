@@ -1,6 +1,7 @@
 package app.foyer.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -170,11 +171,15 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
             } else {
                 BoxWithConstraints(Modifier.fillMaxSize().padding(5.dp)) {
                     folderPreviewMembers(folder.apps.size).forEach { (index, center) ->
-                        val size = iconSize * .38f
-                        AppIcon(state.appFor(AppContent(folder.apps[index]))?.icon, size,
-                            Modifier.offset(maxWidth * center.x - size / 2, maxHeight * center.y - size / 2).graphicsLayer {
-                                alpha = if (state.folderLanding?.let { it.folderId == item.id && it.key == folder.apps[index] } == true) 0f else 1f
-                            })
+                        key(folder.apps[index]) {
+                            val x by animateFloatAsState(center.x, tween(240), label = "preview x")
+                            val y by animateFloatAsState(center.y, tween(240), label = "preview y")
+                            val size = iconSize * .38f
+                            AppIcon(state.appFor(AppContent(folder.apps[index]))?.icon, size,
+                                Modifier.offset(maxWidth * x - size / 2, maxHeight * y - size / 2).graphicsLayer {
+                                    alpha = if (state.folderLanding?.let { it.folderId == item.id && it.key == folder.apps[index] } == true) 0f else 1f
+                                })
+                        }
                     }
                 }
             }
@@ -231,28 +236,38 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         val bottom = minOf(height - maxOf(safeBottom, ime), if (dockTop > safeTop) dockTop else height - safeBottom)
         val viewport = Rect(safeLeft + margin, safeTop + margin, width - safeRight - margin, (bottom - margin).coerceAtLeast(safeTop + margin))
         val anchor = state.folderSurfaceBounds[id] ?: Rect(Offset(width / 2, height / 2), Size.Zero)
-        val rows = ceil(folder.apps.size / 3f).toInt().coerceAtLeast(1)
+        val drag = state.drag
+        val target = drag?.let { state.targetFor(it) } as? DropTarget.Folder
+        val member = (drag?.source as? DragSource.Member)?.takeIf { it.folderId == id }?.key
+        val order = if (target?.id == id) folderDragOrder(folder.apps, member, target.index, folder.large) else folder.apps
+        val columns = folderColumns(order.size, folder.large)
+        val rows = ceil(order.size.toFloat() / columns).toInt().coerceAtLeast(if (columns == 2) 2 else 1)
         // The reference panel is about 4.85 home-icon diameters wide, with generous row spacing.
         val icon = state.iconSize
         val rowHeight = icon * 1.8f
-        val rect = folderPanelRect(anchor, viewport, with(density) {
-            Size((icon * 4.85f).toPx(), (rowHeight * rows + 64.dp).toPx())
+        val desiredRect = folderPanelRect(anchor, viewport, with(density) {
+            Size((icon * (columns * 1.6f + .05f)).toPx(), (rowHeight * rows + 64.dp).toPx())
         })
+        val left by animateFloatAsState(desiredRect.left, tween(240), label = "panel left")
+        val top by animateFloatAsState(desiredRect.top, tween(240), label = "panel top")
+        val right by animateFloatAsState(desiredRect.right, tween(240), label = "panel right")
+        val bottomEdge by animateFloatAsState(desiredRect.bottom, tween(240), label = "panel bottom")
+        val rect = Rect(left, top, right, bottomEdge)
         val preview = folderPreviewMembers(folder.apps.size, folder.large)
         val p = expansion.value
         val current = androidx.compose.ui.geometry.lerp(anchor, rect, p)
         val radius = with(density) { if (folder.large) 24.dp.toPx() else anchor.width / 2 }
         val corner = with(density) { (radius + (24.dp.toPx() - radius) * p).toDp() }
         val labels = ((p - .45f) / .55f).coerceIn(0f, 1f)
-        val drag = state.drag
         val gridState = key(id) { rememberLazyGridState() }
         val liveMemberFrames = remember(id) { mutableMapOf<AppKey, () -> Rect?>() }
         val rowPx = with(density) { rowHeight.toPx() }
         val iconPx = with(density) { icon.toPx() }
         val gridRect = Rect(rect.left + with(density) { 8.dp.toPx() }, rect.top + with(density) { 12.dp.toPx() },
             rect.right - with(density) { 8.dp.toPx() }, rect.bottom - with(density) { 52.dp.toPx() })
-        val scroll = gridState.firstVisibleItemIndex / 3 * rowPx + gridState.firstVisibleItemScrollOffset
+        val scroll = gridState.firstVisibleItemIndex / columns * rowPx + gridState.firstVisibleItemScrollOffset
         SideEffect {
+            state.folderGridColumns = columns
             state.folderGridScroll = scroll
             state.folderContentViewport = folderContentClip(current, gridRect, p)
         }
@@ -271,9 +286,6 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                 if (delta != 0f) gridState.scrollBy(delta)
             }
         }
-        val target = drag?.let { state.targetFor(it) } as? DropTarget.Folder
-        val member = (drag?.source as? DragSource.Member)?.takeIf { it.folderId == id }?.key
-        val order = if (target?.id == id) folderDragOrder(folder.apps, member, target.index) else folder.apps
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .22f * p)).clickable(onClick = close))
         Box(Modifier.offset { IntOffset(current.left.roundToInt(), current.top.roundToInt()) }
             .size(with(density) { current.width.toDp() }, with(density) { current.height.toDp() })
@@ -283,7 +295,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                 .requiredSize(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
                 .offset { IntOffset((rect.left - current.left).roundToInt(), (rect.top - current.top).roundToInt()) }
                 .padding(horizontal = 8.dp).padding(top = 12.dp, bottom = 4.dp)) {
-                LazyVerticalGrid(columns = GridCells.Fixed(3), state = gridState, userScrollEnabled = drag == null,
+                LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState, userScrollEnabled = drag == null,
                     modifier = Modifier.weight(1f).fillMaxWidth()
                     .onGloballyPositioned {
                         state.folderGridBounds = Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat()))
@@ -347,7 +359,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                                         translationX = (start.center.x - destination.x) * (1f - p)
                                         translationY = (start.center.y - destination.y) * (1f - p) +
                                             (scaleX - 1f) * (iconPx / 2 + with(density) { 6.dp.toPx() })
-                                        alpha = labels
+                                        alpha = if (state.folderLanding?.let { it.folderId == id && it.key == key } == true) 0f else labels
                                     })
                             }
                         }
@@ -381,7 +393,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                         val start = folderMemberStart(anchor, folder.large, folder.apps.size, index, iconPx,
                             with(density) { 5.dp.toPx() })
                         val end = liveMemberFrames[key]?.invoke()
-                            ?: folderGridIcon(gridRect, slot, rowPx, iconPx, with(density) { 8.dp.toPx() }, scroll)
+                            ?: folderGridIcon(gridRect, slot, rowPx, iconPx, with(density) { 8.dp.toPx() }, scroll, columns)
                         val frame = folderMemberFrame(start, end, p)
                         AppIcon(state.appFor(AppContent(key))?.icon, icon, Modifier.testTag("folder-morph-preview-$index").semantics { contentDescription = key.toString() }
                             .offset { IntOffset((frame.center.x - current.left - iconPx / 2).roundToInt(),
@@ -419,7 +431,7 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val panel = state.folderTransitionId == landing.folderId
     val memberVisual = if (panel) state.folderMemberFrames[landing.folderId to landing.key]?.invoke() else null
     val end = if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
-            folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll)
+            folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
         }
         else folderMemberStart(surface, folder.large, folder.apps.size, index, icon, with(density) { 5.dp.toPx() })
     val destination = end ?: surface

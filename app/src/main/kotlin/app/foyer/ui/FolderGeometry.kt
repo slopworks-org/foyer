@@ -15,6 +15,8 @@ internal fun dropLayerAt(point: Offset, viewport: Rect, panel: Rect?, dock: Rect
     else -> DropLayer.Feed
 }
 
+internal fun folderColumns(count: Int, large: Boolean = false): Int = if (large || count >= 5) 3 else 2
+
 /** Normalized icon centers, including the three-member triangular preview. */
 internal fun folderPreviewCenters(count: Int): List<Offset> = when (count.coerceIn(0, 4)) {
     0 -> emptyList()
@@ -31,7 +33,7 @@ internal fun folderPreviewMembers(count: Int, large: Boolean = false): List<Fold
     if (large) (0 until minOf(count, 9)).map { index ->
         FolderPreviewMember(index, Offset((index % 3 + .5f) / 3, (index / 3 + .5f) / 3))
     } else {
-        val indices = if (count < 4) (0 until count).toList() else listOf(0, 1, 3, 4)
+        val indices = if (count <= 4) (0 until count).toList() else listOf(0, 1, 3, 4)
         folderPreviewCenters(count).zip(indices).mapNotNull { (center, index) ->
             if (index < count) FolderPreviewMember(index, center) else null
         }
@@ -47,20 +49,20 @@ internal fun folderPanelRect(anchor: Rect, viewport: Rect, desired: Size): Rect 
 }
 
 /** Hit testing uses stationary slots, never the animated bounds of reordering children. */
-internal fun folderInsertionIndex(point: Offset, grid: Rect, rowHeight: Float, count: Int, scroll: Float = 0f): Int {
+internal fun folderInsertionIndex(point: Offset, grid: Rect, rowHeight: Float, count: Int, scroll: Float = 0f, large: Boolean = false, columns: Int = folderColumns(count, large)): Int {
     if (point.y >= grid.bottom) return count
-    val column = ((point.x - grid.left) / (grid.width / 3)).toInt().coerceIn(0, 2)
+    val column = ((point.x - grid.left) / (grid.width / columns)).toInt().coerceIn(0, columns - 1)
     val row = ((point.y - grid.top + scroll) / rowHeight).toInt().coerceAtLeast(0)
-    return (row * 3 + column).coerceAtMost(count)
+    return (row * columns + column).coerceAtMost(count)
 }
 
 internal fun folderInsertionForMember(slot: Int, sourceIndex: Int): Int =
     slot + if (sourceIndex >= 0 && slot > sourceIndex) 1 else 0
 
 /** Preserve the dragged member's composition (and pointer ownership) as the invisible gap. */
-internal fun folderDragOrder(apps: List<AppKey>, member: AppKey?, index: Int): List<AppKey?> {
+internal fun folderDragOrder(apps: List<AppKey>, member: AppKey?, index: Int, large: Boolean = false): List<AppKey?> {
     val old = apps.indexOf(member)
-    val insertion = index.coerceIn(0, apps.size)
+    val insertion = (if (old < 0 && !large && apps.size == 4 && index >= 4) 2 else index).coerceIn(0, apps.size)
     return apps.toMutableList<AppKey?>().apply {
         if (old >= 0) removeAt(old)
         add((insertion - if (old in 0 until insertion) 1 else 0).coerceIn(0, size), member)
@@ -83,9 +85,9 @@ internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index:
 }
 
 /** Unclipped slot geometry also works for members that the lazy grid has not composed. */
-internal fun folderGridIcon(grid: Rect, index: Int, rowHeight: Float, icon: Float, topPadding: Float, scroll: Float): Rect =
-    Rect(Offset(grid.left + grid.width * (index % 3 + .5f) / 3 - icon / 2,
-        grid.top + index / 3 * rowHeight + topPadding - scroll), Size(icon, icon))
+internal fun folderGridIcon(grid: Rect, index: Int, rowHeight: Float, icon: Float, topPadding: Float, scroll: Float, columns: Int = 3): Rect =
+    Rect(Offset(grid.left + grid.width * (index % columns + .5f) / columns - icon / 2,
+        grid.top + index / columns * rowHeight + topPadding - scroll), Size(icon, icon))
 
 internal fun folderMemberFrame(start: Rect, end: Rect, progress: Float): Rect =
     androidx.compose.ui.geometry.lerp(start, end, progress)

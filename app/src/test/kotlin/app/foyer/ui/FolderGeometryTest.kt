@@ -11,6 +11,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderGeometryTest {
+    @Test fun adaptiveColumnsAndFifthInsertionPreserveRelativeOrder() {
+        val keys = (0..5).map { AppKey("pkg$it", "Main", 0) }
+        for (count in 0..6) {
+            assertEquals(if (count < 5) 2 else 3, folderColumns(count))
+            assertEquals(3, folderColumns(count, true))
+        }
+        val initial = Edits.add(HomeLayout(), FolderContent(keys.take(4)), 0, 0)
+        val five = Edits.transferApp(initial, keys[4], targetFolder = 1)
+        assertEquals(listOf(keys[0], keys[1], keys[4], keys[2], keys[3]), (five.items.first().content as FolderContent).apps)
+        assertSame(five, Edits.transferApp(five, keys[4], targetFolder = 1))
+        val four = Edits.transferApp(five, keys[4], sourceFolder = 1, x = 4, y = 4)
+        assertEquals(keys.take(4), (four.items.first().content as FolderContent).apps)
+        assertEquals(listOf(keys[0], keys[1], null, keys[2], keys[3]), folderDragOrder(keys.take(4), null, Int.MAX_VALUE))
+        assertEquals(keys.take(4) + null, folderDragOrder(keys.take(4), null, Int.MAX_VALUE, large = true))
+        val grid = Rect(0f, 0f, 300f, 200f)
+        assertEquals(3, folderInsertionIndex(Offset(250f, 150f), grid, 100f, 4))
+        assertEquals(Offset(225f, 108f), folderGridIcon(grid, 3, 100f, 40f, 8f, 0f, 2).topLeft + Offset(20f, 0f))
+    }
+
     @Test fun landingHandoffUsesGridClipInsteadOfRenameFooter() {
         val panel = Rect(0f, 0f, 300f, 352f)
         val grid = Rect(8f, 12f, 292f, 300f)
@@ -47,7 +66,7 @@ class FolderGeometryTest {
 
     @Test fun previewSlotsPreserveOpenGridCellsWithoutChangingStoredOrder() {
         val expected = listOf(emptyList(), listOf(0), listOf(0, 1), listOf(0, 1, 2),
-            listOf(0, 1, 3), listOf(0, 1, 3, 4), listOf(0, 1, 3, 4))
+            listOf(0, 1, 2, 3), listOf(0, 1, 3, 4), listOf(0, 1, 3, 4))
         val surface = Rect(0f, 0f, 100f, 100f)
         for (count in 0..12) {
             val members = folderPreviewMembers(count)
@@ -56,8 +75,8 @@ class FolderGeometryTest {
                 assertEquals(Offset(10 + 80 * center.x, 10 + 80 * center.y),
                     folderMemberStart(surface, false, count, index, 50f, 10f).center)
                 if (count >= 4) {
-                    assertEquals(index % 3, if (center.x < .5f) 0 else 1)
-                    assertEquals(index / 3, if (center.y < .5f) 0 else 1)
+                    assertEquals(index % folderColumns(count), if (center.x < .5f) 0 else 1)
+                    assertEquals(index / folderColumns(count), if (center.y < .5f) 0 else 1)
                 }
             }
             assertEquals((0 until minOf(count, 9)).toList(), folderPreviewMembers(count, true).map { it.index })
