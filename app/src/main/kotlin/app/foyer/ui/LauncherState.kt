@@ -73,7 +73,10 @@ sealed interface DragSource {
 }
 
 internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.AppKey,
-    val icon: Icon?, val origin: Offset, val scale: Float)
+    val icon: Icon?, val origin: Offset, val scale: Float, val velocity: Offset = Offset.Zero,
+    val releasedNanos: Long = System.nanoTime()) {
+    var validated by mutableStateOf(false)
+}
 
 @Stable
 class DragSession(
@@ -403,6 +406,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun startDrag(session: DragSession) {
         menu = null
+        folderLanding = null
         drag = session
         if (searchOpen) closeSearch()
     }
@@ -423,13 +427,14 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     fun cancelDrag() {
+        folderLanding = null
         hoverJob?.cancel()
         hoverFolder = null
         drag = null
         if (!searchOpen) query = ""
     }
 
-    fun endDrag() {
+    fun endDrag(velocity: Offset = Offset.Zero) {
         val s = drag ?: return
         val target = targetFor(s)
         hoverJob?.cancel()
@@ -437,6 +442,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val key = (s.content as? AppContent)?.app
         val release = s.anchor
         val releaseScale = s.visualScale
+        val flight = if (target is DropTarget.Folder && key != null)
+            FolderLanding(target.id, key, s.icon, release, releaseScale, velocity).also { folderLanding = it } else null
         scope.launch {
             val missing = if (key == null) emptySet() else graph.apps.missingFolderApps(listOf(key))
             if (drag !== s) return@launch
@@ -445,10 +452,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 val plan = if (available && target != null) plan(s, target, current) else null
                 if (plan != null) {
                     if (target is DropTarget.Folder && key != null) {
-                        folderLanding = FolderLanding(target.id, key, s.icon, release, releaseScale)
+                        flight?.validated = true
                     } else dropOrigins[plan.second] = s.anchor
                     plan.first
                 } else {
+                    if (folderLanding === flight) folderLanding = null
                     if (target is DropTarget.Folder) folderFeedback = R.string.folder_drop_failed
                     else if (s.content is FolderContent) folderFeedback = R.string.folder_move_failed
                     s.placedId?.let { dropOrigins[it] = s.anchor }

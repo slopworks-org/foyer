@@ -426,30 +426,51 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val progress = remember(landing) { Animatable(0f) }
     val density = LocalDensity.current
     val icon = with(density) { state.iconSize.toPx() }
-    LaunchedEffect(landing) {
-        progress.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
-        if (state.folderLanding === landing) state.folderLanding = null
+    LaunchedEffect(landing, landing.validated) {
+        if (landing.validated) progress.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
     }
     DisposableEffect(landing) {
         onDispose { if (state.folderLanding === landing) state.folderLanding = null }
     }
-    val folder = layout.items.find { it.id == landing.folderId }?.content as? FolderContent ?: return
-    val surface = state.folderSurfaceBounds[landing.folderId] ?: return
-    val index = folder.apps.indexOf(landing.key)
-    val visible = folderPreviewMembers(folder.apps.size, folder.large).any { it.index == index }
+    val startSize = icon * landing.scale
+    val start = Rect(landing.origin - Offset(startSize / 2, startSize / 2), Size(startSize, startSize))
+    val folder = layout.items.find { it.id == landing.folderId }?.content as? FolderContent
+    // Keep the flight composed even while reflow temporarily detaches the destination tile.
+    val surface = state.folderSurfaceBounds[landing.folderId] ?: start
+    val index = folder?.apps?.indexOf(landing.key)?.coerceAtLeast(0) ?: 0
+    val visible = folderPreviewMembers(folder?.apps?.size ?: 0, folder?.large ?: false).any { it.index == index }
     val panel = state.folderTransitionId == landing.folderId
     val memberVisual = if (panel) state.folderMemberFrames[landing.folderId to landing.key]?.invoke() else null
     val end = if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
             folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
         }
-        else folderMemberStart(surface, folder.large, folder.apps.size, index, icon, with(density) { 5.dp.toPx() })
+        else if (folder != null) folderMemberStart(surface, folder.large, folder.apps.size, index, icon, with(density) { 5.dp.toPx() }) else null
     val destination = end ?: surface
     val viewport = if (panel) state.folderContentViewport else null
     val destinationVisible = if (panel) viewport?.overlaps(destination) == true else visible
     val destinationAlpha = if (destinationVisible) memberVisual?.alpha ?: 1f else 0f
-    val startSize = icon * landing.scale
-    val start = Rect(landing.origin - Offset(startSize / 2, startSize / 2), Size(startSize, startSize))
-    val frame = folderMemberFrame(start, destination, progress.value)
+    val target by rememberUpdatedState(if (landing.validated) destination.center else null)
+    var motion by remember(landing) { mutableStateOf(ReleaseMotion(landing.origin, boundedReleaseVelocity(landing.velocity, icon * 50))) }
+    LaunchedEffect(landing) {
+        var previous = withFrameNanos { now ->
+            // Test frame clocks have a synthetic epoch; real frames share nanoTime's epoch.
+            val elapsed = if (now >= landing.releasedNanos) (now - landing.releasedNanos) / 1_000_000_000f else 1f / 60f
+            motion = motion.step(target, elapsed.coerceAtMost(.064f))
+            now
+        }
+        while (true) {
+            val now = withFrameNanos { it }
+            motion = motion.step(target, ((now - previous) / 1_000_000_000f).coerceAtMost(.064f))
+            previous = now
+            if (landing.validated && progress.value >= 1f &&
+                (motion.position - (target ?: motion.position)).getDistance() < .5f && motion.velocity.getDistance() < 5f) {
+                if (state.folderLanding === landing) state.folderLanding = null
+                break
+            }
+        }
+    }
+    val frameSize = start.width + (destination.width - start.width) * progress.value
+    val frame = Rect(motion.position - Offset(frameSize / 2, frameSize / 2), Size(frameSize, frameSize))
     AppIcon(landing.icon, state.iconSize, Modifier.testTag("folder-landing")
         .offset { IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt()) }
         .graphicsLayer {

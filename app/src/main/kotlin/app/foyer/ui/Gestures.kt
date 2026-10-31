@@ -29,7 +29,7 @@ class ItemGestureCallbacks(
     /** [pointer] = where the finger went down, [bounds] = the item, both in root px. */
     val onDragStart: (pointer: Offset, bounds: Rect) -> Unit,
     val onDrag: (pointer: Offset) -> Unit,
-    val onDragEnd: () -> Unit,
+    val onDragEnd: (Offset) -> Unit,
     val onDragCancel: () -> Unit,
 )
 
@@ -78,22 +78,38 @@ fun Modifier.itemGestures(
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         cb.onLongPress(lc.boundsInRoot())
                         var dragging = false
+                        var released = false
+                        val tracker = VelocityTracker()
+                        var lastMotion = 0L
+                        var lastPosition = Offset.Unspecified
                         try {
                             while (true) {
                                 val ev = awaitPointerEvent()
                                 val c = ev.changes.firstOrNull { it.id == down.id } ?: break
                                 c.consume()
-                                if (!c.pressed) break
                                 val now = coords ?: lc
+                                val position = now.localToRoot(c.position)
+                                if (position != lastPosition) lastMotion = c.uptimeMillis
+                                lastPosition = position
+                                tracker.addPosition(c.uptimeMillis, position)
+                                if (!c.pressed) {
+                                    if (dragging) cb.onDrag(position)
+                                    released = c.changedToUpIgnoreConsumed()
+                                    break
+                                }
                                 if (!dragging && (c.position - down.position).getDistance() > slop) {
                                     dragging = true
                                     cb.onDragStart(now.localToRoot(down.position), now.boundsInRoot())
                                 }
-                                if (dragging) cb.onDrag(now.localToRoot(c.position))
+                                if (dragging) cb.onDrag(position)
                             }
                             if (dragging) {
                                 dragging = false
-                                cb.onDragEnd()
+                                if (released) {
+                                    val velocity = tracker.calculateVelocity()
+                                    cb.onDragEnd(if (currentEvent.changes.first { it.id == down.id }.uptimeMillis - lastMotion > 80) Offset.Zero
+                                        else Offset(velocity.x, velocity.y))
+                                } else cb.onDragCancel()
                             }
                         } finally {
                             if (dragging) cb.onDragCancel()

@@ -825,7 +825,7 @@ private fun DockSearchBar(modifier: Modifier) {
 @Composable
 fun DragGhost(state: LauncherState, iconSize: Dp) {
     val s = state.drag ?: return
-    if (s.isWidget) return
+    if (s.isWidget || state.folderLanding != null) return
     val lift = remember(s) { Animatable(1f) }
     LaunchedEffect(s) { lift.animateTo(1.12f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)) }
     val folder = s.content as? FolderContent
