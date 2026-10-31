@@ -108,3 +108,13 @@ internal fun dockKeyboardLift(lift: Float, active: Boolean, progress: Float, tar
     if (active || target > 0f || progress > 0f && !folderVisible) lift else 0f
 
 internal data class FolderMemberVisual(val bounds: Rect, val alpha: Float)
+
+/** Match the moving panel mask and the preview layer's interpolated grid viewport. */
+internal fun folderContentClip(panel: Rect, grid: Rect, expansion: Float): Rect =
+    panel.intersect(androidx.compose.ui.geometry.lerp(panel, grid, expansion))
+
+/** Gradually adopt the destination's clipping before handing the icon back to the grid. */
+internal fun folderLandingClip(frame: Rect, viewport: Rect, progress: Float): Rect {
+    val visible = if (frame.overlaps(viewport)) frame.intersect(viewport) else Rect(frame.center, Size.Zero)
+    return androidx.compose.ui.geometry.lerp(frame, visible, ((progress - .65f) / .35f).coerceIn(0f, 1f))
+}

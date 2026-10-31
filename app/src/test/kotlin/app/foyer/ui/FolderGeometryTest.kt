@@ -11,6 +11,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderGeometryTest {
+    @Test fun landingHandoffUsesGridClipInsteadOfRenameFooter() {
+        val panel = Rect(0f, 0f, 300f, 352f)
+        val grid = Rect(8f, 12f, 292f, 300f)
+        val viewport = folderContentClip(panel, grid, 1f)
+        assertEquals(grid, viewport)
+        val footerIcon = Rect(30f, 304f, 78f, 352f)
+        assertTrue(panel.contains(footerIcon.center))
+        assertFalse(viewport.overlaps(footerIcon))
+        assertTrue(folderLandingClip(footerIcon, viewport, 1f).isEmpty)
+        val partialIcon = Rect(30f, 276f, 78f, 324f)
+        assertEquals(partialIcon, folderLandingClip(partialIcon, viewport, .65f))
+        assertEquals(Rect(30f, 276f, 78f, 300f), folderLandingClip(partialIcon, viewport, 1f))
+        assertEquals(312f, folderLandingClip(partialIcon, viewport, .825f).bottom, .001f)
+        assertEquals(panel, folderContentClip(panel, grid, 0f))
+        assertEquals(Rect(4f, 6f, 296f, 326f), folderContentClip(panel, grid, .5f))
+    }
+
     @Test fun offscreenPreviewDestinationsRemainUnclippedAndReversible() {
         val grid = Rect(20f, 100f, 320f, 400f)
         val anchor = Rect(300f, 600f, 350f, 650f)

@@ -145,6 +145,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var folderGridBounds: androidx.compose.ui.geometry.Rect? = null
     var folderRowHeight = 1f
     var folderGridScroll = 0f
+    internal var folderContentViewport by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
     internal var folderLanding by mutableStateOf<FolderLanding?>(null)
     internal val folderMemberFrames = mutableMapOf<Pair<Long, app.foyer.data.AppKey>, () -> FolderMemberVisual?>()
     val memberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()

@@ -220,6 +220,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
             state.folderTransitionId = null
             state.folderPanelBounds = null
             state.folderGridBounds = null
+            state.folderContentViewport = null
         }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -253,6 +254,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         val scroll = gridState.firstVisibleItemIndex / 3 * rowPx + gridState.firstVisibleItemScrollOffset
         SideEffect {
             state.folderGridScroll = scroll
+            state.folderContentViewport = folderContentClip(current, gridRect, p)
         }
         LaunchedEffect(id, drag != null) {
             val zone = with(density) { 56.dp.toPx() }
@@ -368,7 +370,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
             // Preview members must exist independently of lazy composition: after scrolling,
             // their grid slots can be far outside the viewport when closing or reversing.
             if (p < 1f) {
-                val clip = androidx.compose.ui.geometry.lerp(current, gridRect, p)
+                val clip = folderContentClip(current, gridRect, p)
                 Box(Modifier.fillMaxSize().drawWithContent {
                     clipRect(clip.left - current.left, clip.top - current.top,
                         clip.right - current.left, clip.bottom - current.top) { this@drawWithContent.drawContent() }
@@ -421,7 +423,8 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
         }
         else folderMemberStart(surface, folder.large, folder.apps.size, index, icon, with(density) { 5.dp.toPx() })
     val destination = end ?: surface
-    val destinationVisible = if (panel) state.folderPanelBounds?.contains(destination.center) == true else visible
+    val viewport = if (panel) state.folderContentViewport else null
+    val destinationVisible = if (panel) viewport?.overlaps(destination) == true else visible
     val destinationAlpha = if (destinationVisible) memberVisual?.alpha ?: 1f else 0f
     val startSize = icon * landing.scale
     val start = Rect(landing.origin - Offset(startSize / 2, startSize / 2), Size(startSize, startSize))
@@ -432,5 +435,14 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
             scaleX = frame.width / icon
             scaleY = scaleX
             alpha = 1f + (destinationAlpha - 1f) * ((progress.value - .65f) / .35f).coerceIn(0f, 1f)
+        }.drawWithContent {
+            if (viewport == null || frame.width <= 0f || frame.height <= 0f) drawContent()
+            else {
+                val clip = folderLandingClip(frame, viewport, progress.value)
+                clipRect((clip.left - frame.left) * size.width / frame.width,
+                    (clip.top - frame.top) * size.height / frame.height,
+                    (clip.right - frame.left) * size.width / frame.width,
+                    (clip.bottom - frame.top) * size.height / frame.height) { this@drawWithContent.drawContent() }
+            }
         })
 }
