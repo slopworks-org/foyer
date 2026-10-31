@@ -225,6 +225,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
             state.folderTransitionId = null
             state.folderPanelBounds = null
             state.folderGridBounds = null
+            state.folderHitGridBounds = null
             state.folderContentViewport = null
         }
     }
@@ -248,6 +249,12 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         val desiredRect = folderPanelRect(anchor, viewport, with(density) {
             Size((icon * (columns * 1.6f + .05f)).toPx(), (rowHeight * rows + 64.dp).toPx())
         })
+        // Pending gaps may expand the panel, but must not move the insertion hit targets.
+        val hitColumns = folderColumns(folder.apps.size, folder.large)
+        val hitRows = ceil(folder.apps.size.toFloat() / hitColumns).toInt().coerceAtLeast(if (hitColumns == 2) 2 else 1)
+        val hitRect = folderPanelRect(anchor, viewport, with(density) {
+            Size((icon * (hitColumns * 1.6f + .05f)).toPx(), (rowHeight * hitRows + 64.dp).toPx())
+        })
         val left by animateFloatAsState(desiredRect.left, tween(240), label = "panel left")
         val top by animateFloatAsState(desiredRect.top, tween(240), label = "panel top")
         val right by animateFloatAsState(desiredRect.right, tween(240), label = "panel right")
@@ -267,6 +274,8 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
             rect.right - with(density) { 8.dp.toPx() }, rect.bottom - with(density) { 52.dp.toPx() })
         val scroll = gridState.firstVisibleItemIndex / columns * rowPx + gridState.firstVisibleItemScrollOffset
         SideEffect {
+            state.folderHitGridBounds = Rect(hitRect.left + with(density) { 8.dp.toPx() }, hitRect.top + with(density) { 12.dp.toPx() },
+                hitRect.right - with(density) { 8.dp.toPx() }, hitRect.bottom - with(density) { 52.dp.toPx() })
             state.folderGridColumns = columns
             state.folderGridScroll = scroll
             state.folderContentViewport = folderContentClip(current, gridRect, p)

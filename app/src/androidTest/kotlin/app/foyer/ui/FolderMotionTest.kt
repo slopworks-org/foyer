@@ -111,6 +111,38 @@ class FolderMotionTest {
         rule.onNodeWithTag("folder-morph-preview-2", useUnmergedTree = true).assertDoesNotExist()
     }
 
+    @Test fun sustainedHoverPreservesExplicitFifthInsertion() {
+        for (slot in 2..3) {
+            seed(4, 2, 3)
+            open()
+            rule.mainClock.autoAdvance = false
+            rule.runOnIdle {
+                val grid = state.folderGridBounds!!
+                val point = Offset(grid.left + grid.width * (slot % 2 + .5f) / 2,
+                    grid.top + state.folderRowHeight * 1.5f)
+                state.startDrag(DragSession(DragSource.New(AppContent(apps[4])),
+                    state.appFor(AppContent(apps[4]))?.icon, Offset.Zero, point))
+                assertEquals(DropTarget.Folder(folderId, slot), state.targetFor(state.drag!!))
+            }
+            repeat(40) { rule.mainClock.advanceTimeBy(16) }
+            rule.runOnIdle {
+                assertEquals(3, state.folderGridColumns)
+                assertEquals(DropTarget.Folder(folderId, slot), state.targetFor(state.drag!!))
+                state.endDrag()
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitUntil(5_000) {
+                (state.graph.layout.layout.value.items.first().content as FolderContent).apps.size == 5
+            }
+            rule.waitForIdle()
+            rule.runOnIdle {
+                assertEquals(apps.take(4).toMutableList().apply { add(slot, apps[4]) },
+                    (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+            }
+            evidence("sustained-hover-$slot")
+        }
+    }
+
     @Test fun adaptiveGridEvidence() {
         for (opened in listOf(false, true)) for (count in 3..4) {
             seed(count, 2, 3)
