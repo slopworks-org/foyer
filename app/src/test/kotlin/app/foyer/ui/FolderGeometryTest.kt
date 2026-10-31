@@ -81,11 +81,21 @@ class FolderGeometryTest {
         assertNull(dropLayerAt(Offset(140f, -5f), viewport, panel, null))
     }
 
+    @Test fun dockLiftBelongsOnlyToSearchIncludingTransitionFrames() {
+        assertEquals(0f, dockKeyboardLift(300f, false, 0f, 0f))
+        assertEquals(0f, dockKeyboardLift(300f, false, .1f, 0f, folderVisible = true))
+        assertEquals(300f, dockKeyboardLift(300f, true, 0f, 0f, folderVisible = true))
+        assertEquals(300f, dockKeyboardLift(300f, false, 0f, 1f, folderVisible = true))
+        assertEquals(300f, dockKeyboardLift(300f, true, 0f, 0f))
+        assertEquals(300f, dockKeyboardLift(300f, false, 0f, 1f))
+        assertEquals(300f, dockKeyboardLift(300f, false, .1f, 0f))
+    }
+
     @Test fun previewsMatchMemberCounts() {
         assertEquals(emptyList<Offset>(), folderPreviewCenters(0))
         assertEquals(listOf(Offset(.5f, .5f)), folderPreviewCenters(1))
         assertEquals(listOf(Offset(.25f, .5f), Offset(.75f, .5f)), folderPreviewCenters(2))
-        assertEquals(listOf(Offset(.5f, .25f), Offset(.25f, .75f), Offset(.75f, .75f)), folderPreviewCenters(3))
+        assertEquals(listOf(Offset(.25f, .25f), Offset(.75f, .25f), Offset(.5f, .75f)), folderPreviewCenters(3))
         assertEquals(listOf(Offset(.25f, .25f), Offset(.75f, .25f), Offset(.25f, .75f), Offset(.75f, .75f)), folderPreviewCenters(4))
         assertEquals(folderPreviewCenters(4), folderPreviewCenters(20))
     }
@@ -110,7 +120,7 @@ class FolderGeometryTest {
     @Test fun morphStartsAtActualPreviewIconsIncludingTriangleAndLargeGrid() {
         val surface = Rect(100f, 200f, 200f, 300f)
         val triangle = (0..2).map { folderMemberStart(surface, false, 3, it, 100f, 10f) }
-        assertEquals(listOf(Offset(150f, 230f), Offset(130f, 270f), Offset(170f, 270f)), triangle.map { it.center })
+        assertEquals(listOf(Offset(130f, 230f), Offset(170f, 230f), Offset(150f, 270f)), triangle.map { it.center })
         assertTrue(triangle.all { it.width == 38f })
         val large = (0..8).map { folderMemberStart(surface, true, 9, it, 100f, 10f) }
         assertEquals(surface.center, large[4].center)

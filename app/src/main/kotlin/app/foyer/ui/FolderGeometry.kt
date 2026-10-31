@@ -20,7 +20,7 @@ internal fun folderPreviewCenters(count: Int): List<Offset> = when (count.coerce
     0 -> emptyList()
     1 -> listOf(Offset(.5f, .5f))
     2 -> listOf(Offset(.25f, .5f), Offset(.75f, .5f))
-    3 -> listOf(Offset(.5f, .25f), Offset(.25f, .75f), Offset(.75f, .75f))
+    3 -> listOf(Offset(.25f, .25f), Offset(.75f, .25f), Offset(.5f, .75f))
     else -> listOf(Offset(.25f, .25f), Offset(.75f, .25f), Offset(.25f, .75f), Offset(.75f, .75f))
 }
 
@@ -102,3 +102,7 @@ internal fun folderEdgeScroll(pointer: Offset, grid: Rect, zone: Float, speed: F
         else -> 0f
     }
 }
+
+/** Only search owns the dock keyboard lift, including its opening and closing frames. */
+internal fun dockKeyboardLift(lift: Float, active: Boolean, progress: Float, target: Float, folderVisible: Boolean = false): Float =
+    if (active || target > 0f || progress > 0f && !folderVisible) lift else 0f

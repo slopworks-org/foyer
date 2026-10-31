@@ -707,12 +707,17 @@ private fun Dock(
     modifier: Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val lift = keyboardLift()
+    val keyboard = keyboardLift()
+    val lift: androidx.compose.ui.unit.Density.() -> Float = {
+        dockKeyboardLift(keyboard(), state.searchActive, state.searchProgress.value, state.searchProgress.targetValue,
+            state.openFolder != null || state.folderTransitionId != null)
+    }
     Column(
         modifier
             // The whole dock rides on the line between its icons and search content (see
             // LauncherState.searchEdge): up and off the top as search opens, and resting on
-            // the keyboard whenever it is up, so nothing ever slips behind it.
+            // the search keyboard while search owns focus or is transitioning. Folder rename
+            // leaves the home dock at rest behind the IME.
             .graphicsLayer { translationY = state.searchEdge(state.searchProgress.value, lift()) - state.dockRowBottomPx }
             .onGloballyPositioned { state.dockSurfaceCoords = it }
             // Its card becomes the background of search, reaching down to the screen bottom.

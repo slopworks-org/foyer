@@ -137,13 +137,13 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
         },
         onDrag = state::moveDrag, onDragEnd = state::endDrag, onDragCancel = state::cancelDrag,
     )
-    Column(modifier.graphicsLayer { alpha = if (interactive && state.folderTransitionId == item.id) 0f else 1f }.onGloballyPositioned {
+    Column(modifier.onGloballyPositioned {
         coordinates = it
         if (interactive) state.folderBounds[item.id] = it.boundsInRoot()
     }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         val panel = if (folder.large) Modifier.weight(1f).fillMaxWidth().padding(6.dp) else Modifier.size(iconSize)
         val target = state.drag?.let { state.targetFor(it) } as? DropTarget.Folder
-        Box(panel.onGloballyPositioned { if (interactive) state.folderSurfaceBounds[item.id] = it.boundsInRoot() }
+        Box(panel.graphicsLayer { alpha = if (interactive && state.folderTransitionId == item.id) 0f else 1f }.onGloballyPositioned { if (interactive) state.folderSurfaceBounds[item.id] = it.boundsInRoot() }
             .then(if (interactive && target?.id == item.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary,
             if (folder.large) RoundedCornerShape(24.dp) else CircleShape) else Modifier)) {
             // A sibling hit target gives member drags exclusive ownership of their gestures.
@@ -177,7 +177,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
         }
         if (folder.name.isNotEmpty()) Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = LocalOnWallpaper.current.text, style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(top = 4.dp))
+            modifier = Modifier.testTag("folder-caption-${item.id}").padding(top = 4.dp))
     }
 }
 
@@ -187,6 +187,10 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
     var shown by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(state.openFolder) {
         val target = state.openFolder
+        if ((target == null || shown != null && target != shown) && !state.searchActive) {
+            state.focusManager?.clearFocus()
+            state.keyboard?.hide()
+        }
         if (target != null && target != shown) {
             expansion.snapTo(0f)
             shown = target
