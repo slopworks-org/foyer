@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
+import android.content.pm.PackageManager
 import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
 import android.graphics.Bitmap
@@ -74,6 +75,33 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
     /** Called with (package, user serial) when a package is fully removed. */
     var onPackageRemoved: ((String, Long) -> Unit)? = null
 
+    // Main-thread callback tombstones also guard saves against a lagging app catalog.
+    val removedPackages = mutableSetOf<Pair<String, Long>>()
+    private val unavailablePackages = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<String, Long>>()
+
+    /** Package existence, never launcher activity visibility. Failures preserve members. */
+    suspend fun missingFolderApps(keys: List<AppKey>): Set<AppKey> = withContext(Dispatchers.IO) {
+        val installing = runCatching { context.packageManager.packageInstaller.allSessions.mapNotNull { it.appPackageName }.toSet() }
+            .getOrElse { return@withContext emptySet() }
+        missingFolderApps(keys) { key ->
+            val user = userOf(key.user)
+            if (user == null) PackagePresence.Missing
+            else if (serialOf(user) != key.user || !userManager.isUserUnlocked(user) ||
+                userManager.isQuietModeEnabled(user) || (key.pkg to key.user) in unavailablePackages ||
+                key.pkg in installing) PackagePresence.Unknown
+            else {
+                try {
+                    // Query package identity, including disabled and temporarily unavailable apps.
+                    launcherApps.getApplicationInfo(key.pkg, PackageManager.MATCH_UNINSTALLED_PACKAGES or
+                        PackageManager.MATCH_DISABLED_COMPONENTS or PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS, user)
+                    PackagePresence.Present
+                } catch (_: PackageManager.NameNotFoundException) {
+                    PackagePresence.Missing
+                }
+            }
+        }
+    }
+
     private var reloadJob: Job? = null
 
     /** Reloads run one at a time, so a slow one can never overwrite a newer result. */
@@ -82,13 +110,23 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
     init {
         launcherApps.registerCallback(object : LauncherApps.Callback() {
             override fun onPackageRemoved(packageName: String, user: UserHandle) {
+                removedPackages += packageName to serialOf(user)
                 onPackageRemoved?.invoke(packageName, serialOf(user))
                 reload()
             }
-            override fun onPackageAdded(packageName: String, user: UserHandle) = reload()
+            override fun onPackageAdded(packageName: String, user: UserHandle) {
+                removedPackages -= packageName to serialOf(user)
+                reload()
+            }
             override fun onPackageChanged(packageName: String, user: UserHandle) = reload()
-            override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) = reload()
-            override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) = reload()
+            override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
+                packageNames.forEach { unavailablePackages -= it to serialOf(user) }
+                reload()
+            }
+            override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
+                packageNames.forEach { unavailablePackages += it to serialOf(user) }
+                reload()
+            }
             override fun onPackagesSuspended(packageNames: Array<out String>?, user: UserHandle?) = reload()
             override fun onPackagesUnsuspended(packageNames: Array<out String>?, user: UserHandle?) = reload()
             override fun onShortcutsChanged(packageName: String, shortcuts: MutableList<ShortcutInfo>, user: UserHandle) = reloadShortcuts()

@@ -120,11 +120,13 @@ class Graph(private val context: Context) {
         }
     }
 
-    /** A removed profile must not leave launch targets carrying its old serial number. */
+    /** Recheck persisted members after restart/resume, independently of the visible catalog. */
     fun cleanupFolderProfiles() {
-        val users = layout.layout.value.items.flatMap { (it.content as? FolderContent)?.apps.orEmpty() }
-            .map { it.user }.filter { apps.userOf(it) == null }.toSet()
-        if (users.isNotEmpty()) layout.edit { Edits.forgetProfiles(it, users) }
+        scope.launch {
+            val keys = layout.layout.value.items.flatMap { (it.content as? FolderContent)?.apps.orEmpty() }
+            val missing = apps.missingFolderApps(keys)
+            layout.edit { Edits.reconcileFolderApps(it, missing) }
+        }
     }
 
     private fun forgetPackage(pkg: String, user: Long) {

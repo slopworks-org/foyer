@@ -179,6 +179,19 @@ object Edits {
         return l.copy(items = l.items.map { if (it.id == id) it.copy(content = folder, w = span, h = span) else it })
     }
 
+    fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(
+        items = l.items.map { item ->
+            val folder = item.content as? FolderContent
+            if (folder == null) item else item.copy(content = folder.copy(apps = folder.apps - missing))
+        },
+    )
+
+    /** Apply a draft to the latest layout, without restoring original members removed meanwhile. */
+    fun folderDraft(l: HomeLayout, id: Long, draft: FolderContent, original: Set<AppKey>, missing: Set<AppKey>): HomeLayout {
+        val current = (l.items.find { it.id == id }?.content as? FolderContent)?.apps.orEmpty()
+        return folder(l, id, draft.copy(apps = draft.apps.filter { it !in missing && (it !in original || it in current) }))
+    }
+
     fun forgetProfiles(l: HomeLayout, users: Set<Long>): HomeLayout = l.copy(
         items = l.items.map { item ->
             val c = item.content

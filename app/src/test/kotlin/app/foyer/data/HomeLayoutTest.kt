@@ -9,6 +9,41 @@ class HomeLayoutTest {
     private fun app(n: Int, user: Long = 0) = AppKey("pkg$n", "Activity", user)
     private fun layout(folder: FolderContent = FolderContent()) = Edits.add(HomeLayout(), folder, 0, 0)
 
+    @Test fun restartReconciliationPreservesUnknownAndUsesProfileIdentity() {
+        val absent = app(1)
+        val otherProfile = app(1, 10)
+        val unavailable = app(2)
+        val failed = app(3)
+        val installedWithoutActivity = app(4)
+        val keys = listOf(absent, otherProfile, unavailable, failed, installedWithoutActivity)
+        val missing = missingFolderApps(keys) {
+            when (it) {
+                absent -> PackagePresence.Missing
+                unavailable -> PackagePresence.Unknown // locked, quiet, updating or unavailable
+                failed -> error("Package API failed")
+                else -> PackagePresence.Present // disabled apps still have package identity
+            }
+        }
+        val result = Edits.reconcileFolderApps(layout(FolderContent(keys)), missing)
+        assertEquals(keys - absent, (result.items.single().content as FolderContent).apps)
+    }
+
+    @Test fun staleDraftCannotRestoreRemovedOriginalOrNewlySelectedPackage() {
+        val original = app(1)
+        val added = app(2)
+        val kept = app(3)
+        val start = layout(FolderContent(listOf(original, kept)))
+        val removed = Edits.forgetPackage(start, original.pkg, original.user)
+        // Catalog still contains both removed apps; it has no authority over the commit.
+        val draft = FolderContent(listOf(original, added, kept), name = "Edited")
+        val saved = Edits.folderDraft(removed, 1, draft, setOf(original, kept), setOf(added))
+        assertEquals(listOf(kept), (saved.items.single().content as FolderContent).apps)
+        assertEquals("Edited", (saved.items.single().content as FolderContent).name)
+        val removedAfterSave = Edits.forgetPackage(Edits.folderDraft(start, 1, draft,
+            setOf(original, kept), emptySet()), added.pkg, added.user)
+        assertFalse(added in (removedAfterSave.items.single().content as FolderContent).apps)
+    }
+
     @Test fun oldLayoutDecodesWithoutFolders() {
         val old = """{"items":[{"id":7,"content":{"type":"app","app":{"pkg":"pkg1","cls":"Activity","user":0}},"x":2,"y":3}],"nextId":8}"""
         val decoded = json.decodeFromString<HomeLayout>(old)
