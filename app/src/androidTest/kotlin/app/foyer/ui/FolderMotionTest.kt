@@ -4,6 +4,11 @@ import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -32,6 +37,8 @@ class FolderMotionTest {
     private lateinit var saved: HomeLayout
     private lateinit var apps: List<AppKey>
     private var folderId = 0L
+    private var motionCase = ""
+    private val pointerSamples = mutableListOf("case,uptimeMillis,x,y,pressed")
 
     @Before fun setup() {
         val graph = rule.activity.graph
@@ -48,7 +55,16 @@ class FolderMotionTest {
         rule.activity.setContent {
             val scope = rememberCoroutineScope()
             state = remember { LauncherState(graph, scope, rule.activity) }
-            FoyerRoot(state)
+            Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (motionCase.isNotEmpty()) event.changes.forEach {
+                            pointerSamples += "$motionCase,${it.uptimeMillis},${it.position.x},${it.position.y},${it.pressed}"
+                        }
+                    }
+                }
+            }) { FoyerRoot(state) }
         }
         rule.waitForIdle()
     }
@@ -89,6 +105,10 @@ class FolderMotionTest {
     }
 
     private fun evidence(name: String) {
+        val arguments = InstrumentationRegistry.getArguments()
+        if (arguments.getString("skipEvidence") == "true") return
+        val prefixes = arguments.getString("evidencePrefixes")?.split(",")
+        if (prefixes != null && prefixes.none { name.startsWith(it) }) return
         val file = File(rule.activity.getExternalFilesDir(null), "folder-motion/$name.png")
         file.parentFile!!.mkdirs()
         file.outputStream().use { rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -109,6 +129,138 @@ class FolderMotionTest {
                 .assertContentDescriptionEquals(apps[index].toString())
         }
         rule.onNodeWithTag("folder-morph-preview-2", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun pointerReleaseMomentumEvidence() {
+        val trace = StringBuilder("case,frame,x,y,releaseVx,releaseVy\n")
+        for ((case, count, opened) in listOf(
+            Triple("fast-diagonal", 4, false), Triple("paused", 4, false),
+            Triple("slow-open", 3, true), Triple("away-open", 4, true),
+            Triple("fast-large", 5, false), Triple("member-transfer", 3, false),
+            Triple("search-grid", 3, false), Triple("search-row", 4, false), Triple("up-sample", 3, false), Triple("cancel", 3, false)).filter {
+                InstrumentationRegistry.getArguments().getString("momentumCases")?.split(",")?.contains(it.first) != false
+            }) {
+            seed(count, 2, 3)
+            rule.runOnIdle { motionCase = case }
+            val key = apps[count]
+            rule.runOnIdle {
+                state.graph.layout.edit {
+                    var next = Edits.add(it, if (case == "member-transfer") FolderContent(listOf(key), name = "Source") else AppContent(key), 0, 0)
+                    if (case == "fast-large") {
+                        val folder = next.items.first().content as FolderContent
+                        next = Edits.folder(next, folderId, folder.copy(large = true))
+                    }
+                    next
+                }
+            }
+            rule.waitForIdle()
+            val label = state.appFor(AppContent(key))!!.label
+            if (case == "member-transfer") {
+                rule.runOnIdle { state.openFolder = state.graph.layout.layout.value.items.last().id }
+                rule.waitForIdle()
+            }
+            if (case.startsWith("search")) {
+                rule.runOnIdle { state.openSearch(); if (case == "search-row") state.query = label }
+                rule.waitForIdle()
+                rule.waitUntil(5_000) {
+                    ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                }
+                rule.waitForIdle()
+            }
+            val start = when {
+                case == "member-transfer" -> rule.runOnIdle { state.panelMemberBounds[state.openFolder!! to key]!!.center }
+                case.startsWith("search") -> {
+                    val result = rule.onNode(hasText(label) and !hasSetTextAction()).performScrollTo()
+                    var previous = result.fetchSemanticsNode().boundsInRoot
+                    var stableSince = android.os.SystemClock.uptimeMillis()
+                    // IME visibility precedes the end of its real window-insets animation.
+                    rule.waitUntil(5_000) {
+                        val current = result.fetchSemanticsNode().boundsInRoot
+                        if (current != previous) {
+                            previous = current
+                            stableSince = android.os.SystemClock.uptimeMillis()
+                        }
+                        android.os.SystemClock.uptimeMillis() - stableSince >= 350
+                    }
+                    result.fetchSemanticsNode().boundsInRoot.center - Offset(0f, if (case == "search-grid") 30f else 0f)
+                }
+                else -> rule.onNodeWithContentDescription(label).fetchSemanticsNode().boundsInRoot.center
+            }
+            if (case.startsWith("search")) evidence("momentum-$case-start")
+            val root = rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f })
+            rule.mainClock.autoAdvance = false
+            root.performTouchInput { down(start) }
+            rule.mainClock.advanceTimeBy(600)
+            root.performTouchInput { advanceEventTime(600); moveTo(start + Offset(30f, 30f), 16) }
+            rule.mainClock.advanceTimeBy(16)
+            if (opened) {
+                rule.runOnUiThread { state.openFolder = folderId }
+                rule.mainClock.advanceTimeBy(400)
+            }
+            rule.runOnIdle { assertNotNull("pointer must start a drag: $case", state.drag) }
+            val end = rule.runOnIdle { (if (opened) state.folderHitGridBounds!!.center else state.folderBounds[folderId]!!.center) - state.drag!!.anchorOffset }
+            val direction = if (case == "away-open") Offset(-1f, 1f) else Offset(1f, 1f)
+            val distance = if (case == "slow-open") 20f else 320f
+            root.performTouchInput { moveTo(end - direction * distance, 200) }
+            rule.mainClock.advanceTimeBy(16)
+            for (step in 1..5) {
+                root.performTouchInput { moveTo(end - direction * (distance * (1f - step / 5f)), 16) }
+                rule.mainClock.advanceTimeBy(16)
+            }
+            if (case == "paused") {
+                root.performTouchInput { advanceEventTime(200) }
+                rule.mainClock.advanceTimeBy(200)
+                evidence("momentum-paused-hold")
+            }
+            val releaseAnchorOffset = rule.runOnIdle { state.drag!!.anchorOffset }
+            if (case == "cancel") {
+                root.performTouchInput { cancel() }
+                rule.mainClock.autoAdvance = true
+                rule.waitForIdle()
+                rule.runOnIdle {
+                    assertNull(state.drag)
+                    assertNull(state.folderLanding)
+                    assertFalse((state.graph.layout.layout.value.items.first().content as FolderContent).apps.contains(key))
+                }
+                continue
+            }
+            root.performTouchInput {
+                if (case == "up-sample") { advanceEventTime(16); updatePointerTo(0, end + Offset(8f, 8f)) }
+                up()
+            }
+            val flight = rule.runOnIdle { state.folderLanding!! }
+            assertTrue((flight.origin - (end + releaseAnchorOffset + if (case == "up-sample") Offset(8f, 8f) else Offset.Zero)).getDistance() < 1f)
+            if (case == "paused") assertTrue(flight.velocity.getDistance() < 1f)
+            else {
+                assertTrue("real pointer movement must reach landing: $case", flight.velocity.getDistance() > 30f)
+                assertTrue(flight.velocity.x * direction.x > 0f)
+                assertTrue(flight.velocity.y * direction.y > 0f)
+            }
+            for (frame in 0..50) {
+                rule.mainClock.advanceTimeBy(16)
+                val node = root.fetchSemanticsNode()
+                assertTrue(node.boundsInRoot.width > 0f)
+                val landingNode = rule.onAllNodesWithTag("folder-landing").fetchSemanticsNodes().firstOrNull()
+                if (landingNode != null) {
+                    val center = landingNode.boundsInRoot.center
+                    trace.append("$case,$frame,${center.x},${center.y},${flight.velocity.x},${flight.velocity.y}\n")
+                }
+                if ((case == "fast-diagonal" || case == "paused") && frame < 40 || frame == 5 || frame == 20) evidence("momentum-$case-%02d".format(frame))
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+            rule.runOnIdle {
+                assertNull(state.drag)
+                assertNull(state.folderLanding)
+                assertTrue((state.graph.layout.layout.value.items.first().content as FolderContent).apps.contains(key))
+            }
+        }
+        File(rule.activity.getExternalFilesDir(null), "pointer-samples.csv").writeText(pointerSamples.joinToString("\n"))
+        val file = File(rule.activity.getExternalFilesDir(null), "release-trace.csv")
+        file.writeText(trace.toString())
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+            "cp ${file.absolutePath} /sdcard/Download/foyer-three-fixes/").close()
     }
 
     @Test fun sustainedHoverPreservesExplicitFifthInsertion() {
