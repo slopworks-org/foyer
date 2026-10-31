@@ -4,6 +4,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 
+internal enum class DropLayer { Panel, Dock, Feed }
+
+/** Resolve the visible layer before looking at icons, including empty panel and dock space. */
+internal fun dropLayerAt(point: Offset, viewport: Rect, panel: Rect?, dock: Rect?): DropLayer? = when {
+    !viewport.contains(point) -> null
+    panel?.contains(point) == true -> DropLayer.Panel
+    dock?.contains(point) == true -> DropLayer.Dock
+    else -> DropLayer.Feed
+}
+
 /** Normalized icon centers, including the three-member triangular preview. */
 internal fun folderPreviewCenters(count: Int): List<Offset> = when (count.coerceIn(0, 4)) {
     0 -> emptyList()

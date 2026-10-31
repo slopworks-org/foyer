@@ -713,6 +713,7 @@ private fun Dock(
             // LauncherState.searchEdge): up and off the top as search opens, and resting on
             // the keyboard whenever it is up, so nothing ever slips behind it.
             .graphicsLayer { translationY = state.searchEdge(state.searchProgress.value, lift()) - state.dockRowBottomPx }
+            .onGloballyPositioned { state.dockSurfaceCoords = it }
             // Its card becomes the background of search, reaching down to the screen bottom.
             .drawBehind {
                 val shift = state.dockRowBottomPx - state.searchEdge(state.searchProgress.value, lift())

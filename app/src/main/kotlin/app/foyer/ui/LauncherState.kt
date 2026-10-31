@@ -17,6 +17,7 @@ import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.annotation.StringRes
@@ -156,6 +157,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var gridCoords: LayoutCoordinates? = null
     var viewportCoords: LayoutCoordinates? = null
     var dockCoords: LayoutCoordinates? = null
+    var dockSurfaceCoords: LayoutCoordinates? = null
     var cellW by mutableStateOf(1f)
     var cellH by mutableStateOf(1f)
     var iconSize by mutableStateOf(56.dp)
@@ -443,26 +445,38 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun targetFor(s: DragSession): DropTarget? {
         val root = rootCoords ?: return null
         val p = s.anchor
+        val viewport = androidx.compose.ui.geometry.Rect(0f, 0f, root.size.width.toFloat(), root.size.height.toFloat())
+        // The dock background extends to the screen bottom while search/IME translates its row.
+        val dock = dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.let {
+            androidx.compose.ui.geometry.Rect(viewport.left, it.top, viewport.right, viewport.bottom)
+        }
+        when (dropLayerAt(p, viewport, folderPanelBounds.takeIf { openFolder != null }, dock)) {
+            DropLayer.Panel -> {
+                if (s.content !is AppContent) return null
+                val id = openFolder ?: return null
+                val folder = layout.items.find { it.id == id }?.content as? FolderContent ?: return null
+                val member = panelMemberBounds.entries.firstOrNull { (entry, bounds) -> entry.first == id && bounds.contains(p) }
+                return DropTarget.Folder(id, member?.let { folder.apps.indexOf(it.key.second) } ?: Int.MAX_VALUE)
+            }
+            DropLayer.Dock -> {
+                if (s.isWidget || s.content is FolderContent) return null
+                val dc = dockCoords?.takeIf { it.isAttached } ?: return null
+                val local = dc.localPositionOf(root, p)
+                val slot = floor(local.x / (dc.size.width / HomeLayout.DOCK_SLOTS.toFloat())).toInt()
+                return DropTarget.Dock(slot.coerceIn(0, HomeLayout.DOCK_SLOTS - 1))
+            }
+            null -> return null
+            DropLayer.Feed -> Unit
+        }
         if (s.content is AppContent) {
-            (panelMemberBounds + memberBounds.filterKeys { it.first != openFolder }).entries.firstOrNull { (entry, bounds) ->
-                (openFolder == entry.first || (layout.items.find { it.id == entry.first }?.content as? FolderContent)?.large == true) && bounds.contains(p)
+            memberBounds.entries.firstOrNull { (entry, bounds) ->
+                (layout.items.find { it.id == entry.first }?.content as? FolderContent)?.large == true && bounds.contains(p)
             }?.let { (entry, _) ->
                 val folder = layout.items.find { it.id == entry.first }?.content as? FolderContent
                 return DropTarget.Folder(entry.first, folder?.apps?.indexOf(entry.second) ?: 0)
             }
-            if (openFolder != null && folderPanelBounds?.contains(p) == true) return DropTarget.Folder(openFolder!!)
             folderBounds.entries.firstOrNull { (id, bounds) -> id != s.placedId && bounds.contains(p) }?.let {
                 return DropTarget.Folder(it.key)
-            }
-        }
-        if (!s.isWidget) {
-            dockCoords?.takeIf { it.isAttached }?.let { dc ->
-                val local = dc.localPositionOf(root, p)
-                if (local.x in 0f..dc.size.width.toFloat() && local.y in -cellH * 0.2f..dc.size.height.toFloat() + cellH) {
-                    if (s.content is FolderContent) return null
-                    val slot = (local.x / (dc.size.width / HomeLayout.DOCK_SLOTS.toFloat())).toInt()
-                    return DropTarget.Dock(slot.coerceIn(0, HomeLayout.DOCK_SLOTS - 1))
-                }
             }
         }
         val grid = gridCoords?.takeIf { it.isAttached } ?: return null
