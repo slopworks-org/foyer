@@ -195,7 +195,8 @@ object Edits {
         if (target != null) {
             if (sourceFolder != targetFolder && (key in target.apps || target.large && target.apps.size >= 9)) return l
             val members = target.apps - key
-            val updated = members.toMutableList().apply { add(index.coerceIn(0, size), key) }
+            val insertion = if (sourceFolder == targetFolder && target.apps.indexOf(key) < index && index != Int.MAX_VALUE) index - 1 else index
+            val updated = members.toMutableList().apply { add(insertion.coerceIn(0, size), key) }
             var result = folder(l, targetFolder, target.copy(apps = updated))
             if (sourceItem != null) result = remove(result, sourceItem)
             if (sourceFolder != null && sourceFolder != targetFolder) result = folder(result, sourceFolder, from!!.copy(apps = from.apps - key))
@@ -213,12 +214,6 @@ object Edits {
             if (folder == null) item else item.copy(content = folder.copy(apps = folder.apps - missing))
         },
     )
-
-    /** Apply a draft to the latest layout, without restoring original members removed meanwhile. */
-    fun folderDraft(l: HomeLayout, id: Long, draft: FolderContent, original: Set<AppKey>, missing: Set<AppKey>): HomeLayout {
-        val current = (l.items.find { it.id == id }?.content as? FolderContent)?.apps.orEmpty()
-        return folder(l, id, draft.copy(apps = draft.apps.filter { it !in missing && (it !in original || it in current) }))
-    }
 
     fun forgetProfiles(l: HomeLayout, users: Set<Long>): HomeLayout = l.copy(
         items = l.items.map { item ->

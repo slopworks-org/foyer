@@ -23,6 +23,10 @@ class FolderDragTest {
         val initial = Edits.add(base(apps = listOf(key(1), key(2), key(3))), FolderContent(), 3, 0)
         val ordered = Edits.transferApp(initial, key(3), sourceFolder = 1, targetFolder = 1, index = 0)
         assertEquals(listOf(key(3), key(1), key(2)), members(ordered))
+        val downward = Edits.transferApp(initial, key(1), sourceFolder = 1, targetFolder = 1, index = 2)
+        assertEquals(listOf(key(2), key(1), key(3)), members(downward))
+        val appended = Edits.transferApp(initial, key(1), sourceFolder = 1, targetFolder = 1)
+        assertEquals(listOf(key(2), key(3), key(1)), members(appended))
         val moved = Edits.transferApp(ordered, key(1), sourceFolder = 1, targetFolder = 2)
         assertEquals(listOf(key(3), key(2)), members(moved))
         assertEquals(listOf(key(1)), members(moved, 2))
@@ -57,5 +61,8 @@ class FolderDragTest {
         val removed = Edits.forgetPackage(initial, "pkg2", 0)
         assertSame(removed, Edits.transferApp(removed, key(2), sourceItem = 2, targetFolder = 1))
         assertSame(initial, Edits.transferApp(initial, key(1), sourceFolder = 1, x = 4, available = false))
+        val profile = base(apps = listOf(key(1, 10)))
+        val forgotten = Edits.forgetProfiles(profile, setOf(10))
+        assertSame(forgotten, Edits.transferApp(forgotten, key(1, 10), sourceFolder = 1, x = 4))
     }
 }
