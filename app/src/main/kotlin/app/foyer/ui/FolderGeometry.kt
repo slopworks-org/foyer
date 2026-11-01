@@ -9,7 +9,6 @@ import app.foyer.data.AppKey
 
 internal val LARGE_FOLDER_INSET = 12.dp
 internal const val LARGE_FOLDER_ICON_SCALE = .70f
-internal val LARGE_FOLDER_FRAME_ALLOWANCE = 14.dp
 
 internal enum class DropLayer { Panel, Dock, Feed }
 
@@ -133,9 +132,13 @@ internal fun largeFolderCell(surface: Rect, slot: Int, inset: Float): Rect {
     return Rect(Offset(grid.left + size.width * (slot % 3), grid.top + size.height * (slot / 3)), size)
 }
 
-/** Feedback may overflow its dense cell; the hit region and landing center stay fixed. */
-internal fun largeFolderFeedbackFrame(cell: Rect, diameter: Float): Rect =
-    Rect(cell.center - Offset(diameter / 2, diameter / 2), Size(diameter, diameter))
+/** The drawing primitive supplies identical 4dp gutters inside every destination cell. */
+internal fun largeFolderFeedbackFrame(cell: Rect): Rect = cell
+
+/** Leave the 4dp gutter, 1.5dp stroke and 2dp breathing room visible around opaque artwork. */
+internal fun largeFolderGhostScale(cell: Rect, icon: Float, clearance: Float): Float =
+    ((minOf(cell.width, cell.height) - clearance * 2).coerceAtLeast(0f) / icon)
+        .coerceAtMost(LARGE_FOLDER_ICON_SCALE)
 
 /** Absolute large-folder cells share the rendered grid's inset and never compress holes. */
 internal fun largeFolderSlot(point: Offset, surface: Rect, inset: Float): Int {

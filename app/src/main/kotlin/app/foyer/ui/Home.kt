@@ -412,15 +412,11 @@ private fun DropIndicator(state: LauncherState, cellW: Dp, cellH: Dp, iconSize: 
     val s = state.drag ?: return
     val t = state.targetFor(s) as? DropTarget.Feed ?: return
     if (state.plan(s, t) == null) return
-    val color = LocalOnWallpaper.current.text
     Box(
         Modifier
             .offset(cellW * t.x, cellH * t.y)
             .size(cellW * s.w, cellH * s.h)
-            .padding(4.dp)
-            .clip(RoundedCornerShape(if (s.isWidget) 24.dp else iconSize / 2))
-            .background(color.copy(alpha = 0.14f))
-            .border(1.5.dp, color.copy(alpha = 0.45f), RoundedCornerShape(if (s.isWidget) 24.dp else iconSize / 2)),
+            .landingFrame(if (s.isWidget) 24.dp else iconSize / 2, capRadius = false),
     )
 }
 
@@ -864,7 +860,19 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
     val s = state.drag ?: return
     if (s.isWidget || state.folderLanding != null) return
     val lift = remember(s) { Animatable(1f) }
-    LaunchedEffect(s) { lift.animateTo(DRAG_ICON_SCALE, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)) }
+    val preview = state.folderDropPreview(s, includeReleased = true)
+    val density = LocalDensity.current
+    val targetScale = preview?.takeIf { it.folder.large && it.standalone == null }?.let { target ->
+        state.folderSurfaceBounds[target.folderId]?.let { surface ->
+            val cell = largeFolderCell(surface, target.slot, state.folderInsetPx)
+            with(density) { largeFolderGhostScale(cell, iconSize.toPx(), 7.5.dp.toPx()) }
+        }
+    } ?: DRAG_ICON_SCALE
+    LaunchedEffect(s, targetScale) {
+        // Animatable retains the current value and velocity when the hover target changes.
+        lift.animateTo(targetScale, spring(dampingRatio = if (targetScale == DRAG_ICON_SCALE) .5f else 1f,
+            stiffness = Spring.StiffnessMedium))
+    }
     val folder = s.content as? FolderContent
     if (folder != null) {
         val density = LocalDensity.current
@@ -894,14 +902,17 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
 }
 
 /** Desktop landing treatment drawn without changing folder cell measurement. */
+@Composable
 internal fun Modifier.landingFrame(
-    color: Color, radius: Dp, fill: Boolean = true, outline: Boolean = true, inset: Dp = 4.dp,
-): Modifier =
-    this.drawBehind {
+    radius: Dp, fill: Boolean = true, outline: Boolean = true, inset: Dp = 4.dp,
+    capRadius: Boolean = true,
+): Modifier {
+    val color = LocalOnWallpaper.current.text
+    return this.drawBehind {
         val inset = inset.toPx()
         val frameSize = Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset * 2).coerceAtLeast(0f))
         // Keep straight edges on compact cells instead of letting round-rect clamping form a capsule.
-        val frameRadius = minOf(radius.toPx(), minOf(frameSize.width, frameSize.height) * .4f)
+        val frameRadius = if (capRadius) minOf(radius.toPx(), minOf(frameSize.width, frameSize.height) * .4f) else radius.toPx()
         val corner = CornerRadius(frameRadius)
         if (fill) drawRoundRect(color.copy(alpha = .14f), Offset(inset, inset), frameSize, corner)
         val stroke = 1.5.dp.toPx()
@@ -910,3 +921,4 @@ internal fun Modifier.landingFrame(
             CornerRadius((frameRadius - stroke / 2).coerceAtLeast(0f)),
             style = Stroke(stroke))
     }
+}

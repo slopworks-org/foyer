@@ -48,20 +48,19 @@ singleton. New drag ownership or authoritative replacement removes the snapshot,
 identity-checked effect cleanup cannot delete a newer collapse.
 
 Folder app drops mark the resulting cell with the desktop landing treatment: 4dp
-inset, 14% fill, 45% outline and a 1.5dp stroke. Surface-relative color keeps the
-frame legible in both themes. Drawing behind the cell preserves icon measurement,
-gesture ownership and lazy placement; the panel grid clips the frame while scrolling.
-Large slots use the same continuous rounded frame primitive and tokens. They have
-no fill and draw entirely behind the opaque drag icon, without backing or a second
-outline. Their feedback box is the settled lifted icon diameter (1.12 × icon size) plus 14dp,
-centered on the selected slot rather than following an off-center finger. After the
-shared 4dp inset and inward 1.5dp stroke, the inner edge clears a centered circular
-icon by 1.5dp per side. Offset artwork can cross the rim; the frame does not grow to
-enclose it. Feedback retargets over 100ms. The radius remains one quarter of the
-launcher icon size, with the shared 40% rounding cap. Large folders keep their 2×2
-footprint and sparse 3×3 slots, with a shared 12dp internal inset and 70%-size
-miniatures across rendering, preview and landing. The lifted icon stays fully opaque
-at its normal 1.12 scale. Small-folder styling and interactions are unchanged.
+inset, 14% fill, 45% outline and a 1.5dp stroke. Desktop, open folders and
+large folders resolve the same wallpaper text color from the shared theme provider.
+The shared primitive draws each fill and outline once; large folders split these
+between their cell and foreground layers. Large feedback is exactly the selected
+3×3 cell, with regular 4dp internal gutters. Selection changes immediately so a
+border never sweeps through neighboring icons. The radius remains one quarter of
+the launcher icon size, with the shared 40% rounding cap. Large folders keep their
+2×2 footprint, 12dp internal inset and 70%-size miniatures. The lifted icon stays
+fully opaque. Over a valid large cell it smoothly shrinks to fit inside the rim
+(never larger than a 70% miniature), leaving the 4dp inset, 1.5dp stroke and 2dp
+clearance visible. Position, pointer offset and momentum remain unchanged, and
+release starts from the current rendered scale. Exiting resumes the normal 1.12
+lift scale. Feedback never expands to enclose the ghost. Small-folder geometry is unchanged.
 The preview's order and occurrence ID come from the same transfer plan as release,
 including fifth-item reflow, duplicate apps, sparse large slots and swaps. Invalid
 plans have no landing frame. Release removes the frame immediately while retaining

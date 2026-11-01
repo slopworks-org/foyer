@@ -62,7 +62,7 @@ class FolderDropTargetTest {
                     rule.runOnIdle { light = isLight }
                     rule.mainClock.advanceTimeBy(800)
                     rule.waitForIdle()
-                    val directory = File(rule.activity.getExternalFilesDir(null), "large-retention").apply { mkdirs() }
+                    val directory = File(rule.activity.getExternalFilesDir(null), "grid-aligned-feedback").apply { mkdirs() }
                     val file = File(directory, "drop-$name-${if (isLight) "light" else "dark"}.png")
                     rule.runOnIdle {
                         state.drag?.let { drag ->
@@ -80,6 +80,15 @@ class FolderDropTargetTest {
             }
             fun preview(): FolderDropPreview = rule.runOnIdle { state.folderDropPreview(state.drag!!)!! }
             fun marker(p: FolderDropPreview) = rule.onNodeWithTag("folder-drop-1-${p.slot}", useUnmergedTree = true)
+            fixture(3, true)
+            rule.runOnIdle {
+                val grid = state.gridCoords!!
+                state.startDrag(DragSession(DragSource.New(AppContent(app.key)), app.icon, Offset.Zero,
+                    grid.localToRoot(Offset(state.cellW / 2, state.cellH / 2))))
+            }
+            rule.mainClock.advanceTimeBy(800)
+            capture("desktop-comparison")
+            rule.runOnIdle { state.cancelDrag() }
             for (count in listOf(2, 4, 24)) {
                 fixture(count)
                 rule.runOnIdle { state.openFolder = 1 }
@@ -280,12 +289,33 @@ class FolderDropTargetTest {
                 marker(preview()).assertExists()
                 rule.runOnIdle { assertEquals(1f, state.drag!!.visualAlpha) }
                 val rim = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-                val lifted = with(rule.density) { (state.iconSize * state.drag!!.visualScale).toPx() }
-                assertEquals(lifted + with(rule.density) { LARGE_FOLDER_FRAME_ALLOWANCE.toPx() }, rim.width, 1.1f)
                 val cell = rule.runOnIdle { largeFolderCell(state.folderSurfaceBounds.getValue(1), 4, state.folderInsetPx) }
+                assertEquals(cell.width, rim.width, 1.1f)
                 assertEquals(cell.center.x, rim.center.x, 1.1f)
                 assertEquals(cell.center.y, rim.center.y, 1.1f)
                 capture("large-artwork-${artwork.key.pkg}-${if (offset == 0f) "center" else "offset"}")
+            }
+            // Real sparse top row and dense occupancy: visit every destination, with
+            // immediate selection checked before any animation time is advanced.
+            for (count in listOf(3, 9)) {
+                fixture(count, true)
+                for (slot in 0..8) {
+                    rule.runOnIdle {
+                        state.cancelDrag(); state.folderLanding?.let(state::finishLanding)
+                        val cell = largeFolderCell(state.folderSurfaceBounds.getValue(1), slot, state.folderInsetPx)
+                        state.startDrag(DragSession(DragSource.Member(1, app.key, "e0"), app.icon,
+                            Offset.Zero, cell.center))
+                    }
+                    rule.mainClock.advanceTimeBy(32)
+                    val selected = preview()
+                    val cell = rule.runOnIdle { largeFolderCell(state.folderSurfaceBounds.getValue(1), selected.slot, state.folderInsetPx) }
+                    val bounds = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                    assertEquals(cell.center.x, bounds.center.x, 1.1f)
+                    assertEquals(cell.center.y, bounds.center.y, 1.1f)
+                    assertEquals(cell.width, bounds.width, 1.1f)
+                    rule.runOnIdle { assertEquals(1f, state.drag!!.visualAlpha) }
+                    capture("grid-$count-slot-$slot")
+                }
             }
             fixture(2, true)
             rule.runOnIdle {

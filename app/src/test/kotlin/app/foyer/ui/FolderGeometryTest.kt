@@ -11,27 +11,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderGeometryTest {
-    @Test fun compactLargeFrameSharesInsetHitAndLandingCenters() {
-        val icon = 56f
-        val inset = LARGE_FOLDER_INSET.value
-        val surface = Rect(10f, 20f, 150f, 160f)
-        val diameter = icon * DRAG_ICON_SCALE + LARGE_FOLDER_FRAME_ALLOWANCE.value
-        for (slot in 0..8) {
-            val cell = largeFolderCell(surface, slot, inset)
-            val frame = largeFolderFeedbackFrame(cell, diameter)
-            val member = folderMemberStart(surface, true, 9, slot, icon, inset)
-            assertEquals((surface.width - 24f) / 3, cell.width, .001f)
-            assertEquals(cell.center.x, frame.center.x, .001f)
-            assertEquals(cell.center.y, frame.center.y, .001f)
-            assertEquals(cell.center.x, member.center.x, .001f)
-            assertEquals(cell.center.y, member.center.y, .001f)
-            assertEquals(icon * .70f, member.width, .001f)
-            assertEquals(slot, largeFolderSlot(frame.center, surface, inset))
-            assertEquals(icon * DRAG_ICON_SCALE + 14f, frame.width, .001f)
-            // The primitive's 4dp inset plus inward 1.5dp stroke leaves a restrained gap.
-            assertEquals(1.5f, (frame.width - icon * DRAG_ICON_SCALE) / 2 - 4f - 1.5f, .001f)
-            assertTrue(frame.width < surface.width * .56f)
-            assertTrue(member.width <= cell.width * 1.02f)
+    @Test fun everyLargeFrameStaysInsideItsCellAndClearOfNeighborArtwork() {
+        for (icon in listOf(40f, 48f, 56f, 64f, 72f)) {
+            // The absolute LTR slots are deliberately independent of layout direction.
+            val surface = Rect(10f, 20f, 10f + icon * 2.5f, 20f + icon * 2.5f)
+            val inset = LARGE_FOLDER_INSET.value
+            for (slot in 0..8) {
+                val cell = largeFolderCell(surface, slot, inset)
+                val frame = largeFolderFeedbackFrame(cell).deflate(4f)
+                assertTrue("slot=$slot", cell.contains(frame.topLeft) && cell.contains(frame.bottomRight))
+                assertEquals(cell.center, frame.center)
+                val ghost = icon * largeFolderGhostScale(cell, icon, 7.5f)
+                assertTrue(ghost <= icon * LARGE_FOLDER_ICON_SCALE)
+                assertTrue((frame.width - ghost) / 2 >= 3.49f)
+                assertEquals(slot, largeFolderSlot(frame.center, surface, inset))
+                for (neighbor in 0..8) if (neighbor != slot) {
+                    val artwork = folderMemberStart(surface, true, 9, neighbor, icon, inset)
+                    assertFalse("icon=$icon slot=$slot neighbor=$neighbor", frame.overlaps(artwork))
+                }
+            }
         }
     }
 

@@ -216,7 +216,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                                 with(density) { (maxWidth / 3 * (slot % 3)).roundToPx() },
                                 with(density) { (rowHeight * (slot / 3)).roundToPx() }) }
                                 .size(maxWidth / 3, rowHeight).testTag("folder-drop-${item.id}-$slot")
-                                .landingFrame(MaterialTheme.colorScheme.onSurface, iconSize / 4, outline = false))
+                                .landingFrame(iconSize / 4, outline = false))
                         }
                     }
                 } else {
@@ -378,7 +378,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                         if (key == null) {
                             Box(Modifier.animateItem().height(rowHeight).fillMaxWidth()
                                 .then(if (drag?.released == false) Modifier.testTag("folder-drop-$id-${target?.slot}")
-                                    .landingFrame(MaterialTheme.colorScheme.onSurface, icon / 2) else Modifier))
+                                    .landingFrame(icon / 2) else Modifier))
                         } else {
                             val app = state.appFor(AppContent(key.app))
                             val index = folder.entries.indexOf(key)
@@ -404,7 +404,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                             Column(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
                                 .height(rowHeight)
                                 .then(if (drag?.released == false && target?.folderId == id && target.entryId == key.id)
-                                    Modifier.testTag("folder-drop-$id-${target.slot}").landingFrame(MaterialTheme.colorScheme.onSurface, icon / 2) else Modifier)
+                                    Modifier.testTag("folder-drop-$id-${target.slot}").landingFrame(icon / 2) else Modifier)
                                 .then(memberModifier(state, id, key, overlay = true, iconCenter = end?.center)),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(Modifier.padding(top = 8.dp).size(icon).onGloballyPositioned {
@@ -694,7 +694,7 @@ internal fun FolderCollapseOverlay(state: LauncherState) {
     }
 }
 
-/** A large slot is smaller than the lifted icon: keep its precise rim visible above it. */
+/** Cell-bound feedback never sweeps across stationary neighboring artwork. */
 @Composable
 internal fun FolderDropOutline(state: LauncherState) {
     val session = state.drag ?: return
@@ -706,18 +706,11 @@ internal fun FolderDropOutline(state: LauncherState) {
             Size(state.cellW, state.cellH))
     } else {
         val surface = state.folderSurfaceBounds[target.folderId] ?: return
-        val cell = largeFolderCell(surface, target.slot, state.folderInsetPx)
-        // The shared primitive insets by 4dp and strokes inward by 1.5dp.
-        // A 14dp allowance leaves only 1.5dp clear around a centered lifted icon.
-        val diameter = with(LocalDensity.current) { (state.iconSize * DRAG_ICON_SCALE + LARGE_FOLDER_FRAME_ALLOWANCE).toPx() }
-        largeFolderFeedbackFrame(cell, diameter)
+        largeFolderFeedbackFrame(largeFolderCell(surface, target.slot, state.folderInsetPx))
     }
-    val left by animateFloatAsState(bounds.left, tween(100), label = "drop-frame-x")
-    val top by animateFloatAsState(bounds.top, tween(100), label = "drop-frame-y")
     val viewport = state.viewportCoords?.takeIf { it.isAttached }?.boundsInRoot() ?: return
     val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: Float.POSITIVE_INFINITY
     val density = LocalDensity.current
-    val color = MaterialTheme.colorScheme.onSurface
     Box(Modifier.fillMaxSize().drawWithContent {
         clipRect(viewport.left, viewport.top, viewport.right, minOf(viewport.bottom, dockTop)) {
             val panel = state.folderPanelBounds
@@ -727,10 +720,10 @@ internal fun FolderDropOutline(state: LauncherState) {
                 androidx.compose.ui.graphics.ClipOp.Difference) { this@drawWithContent.drawContent() }
         }
     }) {
-        Box(Modifier.offset { IntOffset(left.roundToInt(), top.roundToInt()) }
+        Box(Modifier.offset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
             .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
             .testTag("folder-drop-outline-${target.folderId}")
-            .landingFrame(color, if (standalone != null) state.iconSize / 2 else state.iconSize / 4,
+            .landingFrame(if (standalone != null) state.iconSize / 2 else state.iconSize / 4,
                 fill = standalone != null))
     }
 }

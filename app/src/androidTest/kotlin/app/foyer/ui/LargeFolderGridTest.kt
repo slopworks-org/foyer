@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -53,6 +54,15 @@ class LargeFolderGridTest {
                     assertEquals(point.x, landing.center.x, 1.1f)
                     assertEquals(point.y, landing.center.y, 1.1f)
                     assertEquals(slot, largeFolderSlot(landing.center, surface, state.folderInsetPx))
+                }
+                for (slot in 0..8) {
+                    val cell = largeFolderCell(surface, slot, state.folderInsetPx)
+                    val frame = largeFolderFeedbackFrame(cell).deflate(with(rule.density) { 4.dp.toPx() })
+                    assertEquals(cell.center, frame.center)
+                    assertTrue(cell.contains(frame.topLeft) && cell.contains(frame.bottomRight))
+                    for ((identity, artwork) in state.memberBounds) {
+                        if (identity.first == 1L && !cell.contains(artwork.center)) assertFalse(frame.overlaps(artwork))
+                    }
                 }
                 assertEquals(0, largeFolderSlot(first, surface, state.folderInsetPx))
                 assertEquals(8, largeFolderSlot(last, surface, state.folderInsetPx))
