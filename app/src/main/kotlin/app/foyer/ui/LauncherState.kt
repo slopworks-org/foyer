@@ -190,6 +190,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     internal fun observeFolderChanges(current: HomeLayout, icon: Float, inset: Float) {
         if (current === presentedLayout) return
         val previous = presentedLayout
+        if (menuOwner != null && previous.items.find { it.id == menuOwner } != current.items.find { it.id == menuOwner }) {
+            menu = null; menuOwner = null
+        }
         presentedLayout = current
         folderCollapses.keys.toList().forEach { id ->
             val collapse = folderCollapses[id]!!
@@ -197,6 +200,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
         previous.items.forEach { old ->
             val folder = old.content as? FolderContent ?: return@forEach
+            if (folder.large) return@forEach
             val next = current.items.find { it.id == old.id } ?: return@forEach
             val app = next.content as? AppContent ?: return@forEach
             val survivor = next.folderSurvivor?.let { remaining -> folder.entries.find { it.id == remaining.id } } ?: return@forEach
@@ -431,13 +435,13 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         menuOwner = item.id
         val app = appFor(item.content)
         val actionsList = buildList {
-            if (item.content is FolderContent) {
+            if (item.content is FolderContent && (!item.content.large || item.content.entries.size >= 2)) {
                 val folder = item.content
                 add(MenuAction(if (folder.large) R.string.folder_shrink else R.string.folder_enlarge, MenuIcons.Edit) {
                     openFolder = null
                     graph.layout.edit { current ->
                         val live = current.items.find { it.id == item.id }?.content as? FolderContent
-                        if (live == null) current else {
+                        if (live == null || live.large && live.entries.size < 2) current else {
                             val result = Edits.folder(current, item.id, live.copy(large = !live.large))
                             if (result === current) folderFeedback = if (live.apps.size > 9) R.string.folder_capacity else R.string.folder_collision
                             result
@@ -475,11 +479,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 }
             })
             val item = layout.items.find { it.id == folderId }
-            if ((item?.content as? FolderContent)?.large == true) {
+            if ((item?.content as? FolderContent)?.let { it.large && it.entries.size >= 2 } == true) {
                 add(MenuAction(R.string.folder_shrink, MenuIcons.Edit) {
                     graph.layout.edit { current ->
                         val folder = current.items.find { it.id == folderId }?.content as? FolderContent
-                        if (folder == null) current else Edits.folder(current, folderId, folder.copy(large = false))
+                        if (folder == null || folder.entries.size < 2) current else Edits.folder(current, folderId, folder.copy(large = false))
                     }
                 })
             }

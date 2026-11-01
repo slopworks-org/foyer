@@ -203,8 +203,10 @@ class FolderEntriesUiTest {
             rule.onRoot().performTouchInput { longClick(state.memberBounds.getValue(1L to a.id).center) }
             rule.onNodeWithText(rule.activity.getString(R.string.action_remove)).performClick()
             rule.waitForIdle()
-            assertEquals(AppContent(app), graph.layout.layout.value.items.first().content)
-            assertEquals(1, graph.layout.layout.value.items.first().w)
+            assertEquals(b.copy(slot = 8), folder().entries.single())
+            assertEquals(2, graph.layout.layout.value.items.first().w)
+            assertTrue(folder().large)
+            assertTrue(state.folderCollapses.isEmpty())
             shot("13-large-one-copy-removed-hole-retained")
             // Equivalent accessible creation is attached to apps, without a dedicated create UI.
             rule.runOnIdle { graph.layout.edit { Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app), 0, 0), AppContent(app), 2, 2) } }

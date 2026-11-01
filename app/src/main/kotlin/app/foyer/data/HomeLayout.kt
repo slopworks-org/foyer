@@ -55,7 +55,7 @@ data class FolderContent(
     val slotEntries get() = (0..8).map { slot -> entries.find { it.slot == slot } }
 
     fun normalized(): FolderContent {
-        if (entries.isEmpty()) return this
+        if (entries.isEmpty()) return if (large) copy(name = "") else this
         val ids = mutableSetOf<String>()
         val repaired = entries.map { entry ->
             if (entry.id.isNotBlank() && ids.add(entry.id)) entry else {
@@ -221,10 +221,9 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
 
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
-    /** Empty folders retain their place; one occurrence becomes a regular app at that place. */
+    /** Large folders retain their footprint at every count; only small singletons become apps. */
     private fun canonicalFolder(item: HomeItem, folder: FolderContent): HomeItem {
-        if (folder.entries.size == 1) return item.copy(content = AppContent(folder.entries.single().app), w = 1, h = 1).also { it.folderSurvivor = folder.entries.single() }
-        if (folder.entries.isEmpty()) return item.copy(content = folder)
+        if (!folder.large && folder.entries.size == 1) return item.copy(content = AppContent(folder.entries.single().app), w = 1, h = 1).also { it.folderSurvivor = folder.entries.single() }
         val normalized = folder.normalized()
         return item.copy(content = normalized, w = if (normalized.large) 2 else 1, h = if (normalized.large) 2 else 1)
     }
@@ -234,7 +233,7 @@ object Edits {
     }, nextId = maxOf(l.nextId, (l.items.maxOfOrNull { it.id } ?: 0).coerceAtMost(Long.MAX_VALUE - 1) + 1))
 
     fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout {
-        val span = if (content is FolderContent) { if (content.large && content.entries.size != 1) 2 else 1 } else w
+        val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
         val height = if (content is FolderContent) span else h
         if (content is FolderContent && (dock || content.entries.map { it.id }.distinct().size != content.entries.size || content.large && content.apps.size > 9)) return l
         if (dock) { if (!l.dockSlotFree(x)) return l } else if (!l.isFree(x, y, span, height)) return l
@@ -242,7 +241,7 @@ object Edits {
     }
 
     fun addFirstFree(l: HomeLayout, content: Content, w: Int = 1, h: Int = 1): HomeLayout {
-        val span = if (content is FolderContent) { if (content.large && content.entries.size != 1) 2 else 1 } else w
+        val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
         val (x, y) = l.firstFree(span, if (content is FolderContent) span else h)
         return add(l, content, x, y, w, h)
     }
@@ -267,10 +266,11 @@ object Edits {
     /** Reject invalid edits atomically: membership and occupied cells never change on failure. */
     fun folder(l: HomeLayout, id: Long, folder: FolderContent): HomeLayout {
         val item = l.items.find { it.id == id && it.content is FolderContent && !it.dock } ?: return l
-        val span = if (folder.entries.size == 1) 1 else if (folder.large) 2 else 1
+        val span = if (folder.large) 2 else 1
         if (folder.entries.map { it.id }.distinct().size != folder.entries.size || folder.large && folder.apps.size > 9 ||
             !l.isFree(item.x, item.y, span, span, id)) return l
         val old = item.content as FolderContent
+        if (old.large && !folder.large && (old.entries.size < 2 || folder.entries.size < 2)) return l
         // Mode changes deliberately pack occupied row-major order; large mode has no name.
         val normalized = (if (old.large != folder.large) folder.copy(name = if (folder.large) "" else folder.name, entries = folder.entries.map { it.copy(slot = null) }) else folder).normalized()
         return l.copy(items = l.items.map { if (it.id == id) canonicalFolder(it.copy(w = span, h = span), normalized) else it })
