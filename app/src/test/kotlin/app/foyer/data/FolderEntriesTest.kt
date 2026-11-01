@@ -5,6 +5,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderEntriesTest {
+    @Test fun malformedCanonicalIdsAreRepairedWithoutLosingOccurrences() {
+        val key = """{"pkg":"same","cls":"Main","user":0}"""
+        val raw = """{"items":[{"id":1,"x":0,"y":0,"content":{"type":"folder","entries":[{"app":$key,"id":"same"},{"app":$key,"id":"same"},{"app":$key,"id":""},{"app":$key},{"app":$key,"id":"empty-1"}]}}]}"""
+        val loaded = json.decodeFromString<HomeLayout>(raw)
+        val entries = folder(loaded).entries
+        assertEquals(5, entries.size)
+        assertEquals(5, entries.map { it.id }.distinct().size)
+        assertTrue(entries.all { it.id.isNotBlank() })
+        assertEquals(4, folder(loaded).withoutEntry(entries.first().id).entries.size)
+        assertEquals(loaded, json.decodeFromString<HomeLayout>(json.encodeToString(HomeLayout.serializer(), loaded)))
+    }
+
     private val app = AppKey("same", "Main", 0)
     private val other = AppKey("other", "Main", 0)
     private val json = Json { classDiscriminator = "type" }

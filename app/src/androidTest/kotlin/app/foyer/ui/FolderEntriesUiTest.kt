@@ -25,6 +25,48 @@ import java.io.File
 class FolderEntriesUiTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
+    @Test fun stationaryPointerTracksScrolledMergeTargets() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        lateinit var state: LauncherState
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val app = graph.apps.apps.value.first().key
+        try {
+            graph.layout.edit {
+                Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app), 2, 3), AppContent(app), 0, 20)
+            }
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                state = remember { LauncherState(graph, scope, rule.activity) }
+                FoyerRoot(state)
+            }
+            rule.waitForIdle()
+            rule.mainClock.autoAdvance = false
+            rule.runOnIdle {
+                val point = state.appIconBounds.getValue(1).center - Offset(0f, state.cellH)
+                state.startDrag(DragSession(DragSource.New(AppContent(app)), null, Offset.Zero, point))
+                state.moveDrag(point)
+                assertNull(state.mergeCandidate)
+                kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo(state.cellH.toInt()) }
+            }
+            rule.mainClock.advanceTimeBy(650)
+            rule.runOnIdle {
+                assertEquals(1L, state.mergeCandidate)
+                assertEquals(1L, state.mergeReady)
+                kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo((state.cellH * 2).toInt()) }
+            }
+            rule.mainClock.advanceTimeBy(64)
+            rule.runOnIdle {
+                assertNull(state.mergeCandidate)
+                assertNull(state.mergeReady)
+                state.cancelDrag()
+            }
+        } finally {
+            rule.runOnUiThread { state.cancelDrag(); graph.layout.edit { saved } }
+            rule.mainClock.autoAdvance = true
+        }
+    }
+
     @Test fun duplicateGesturesRemovalAndAccessibleCreation() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value

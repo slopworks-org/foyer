@@ -186,7 +186,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                         // Saved slots use absolute left-to-right coordinates in every locale.
                         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                             LazyVerticalGrid(columns = GridCells.Fixed(3), userScrollEnabled = false) {
-                                items(9, key = { slot -> folder.slotEntries[slot]?.id ?: "empty-$slot" }) { slot ->
+                                items(9, key = { slot -> folder.slotEntries[slot]?.let { "entry:${it.id}" } ?: "empty:$slot" }) { slot ->
                                     val key = folder.normalized().slotEntries[slot]
                                     Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                         if (key != null) AppIcon(state.appFor(AppContent(key.app))?.icon, iconSize * .65f,
@@ -342,7 +342,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                         state.folderGridBounds = Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat()))
                         state.folderRowHeight = with(density) { rowHeight.toPx() }
                     }) {
-                    items(order, key = { it?.id ?: "folder-insertion" }) { key ->
+                    items(order, key = { it?.let { entry -> "entry:${entry.id}" } ?: "folder-insertion" }) { key ->
                         if (key == null) {
                             Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                                 Box(Modifier.padding(top = 8.dp).size(icon).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .07f), CircleShape))

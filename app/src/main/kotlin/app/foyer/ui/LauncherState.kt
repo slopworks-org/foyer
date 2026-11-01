@@ -445,6 +445,10 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun moveDrag(pointer: Offset) {
         drag?.pointer = pointer
+        refreshDragTargets()
+    }
+
+    fun refreshDragTargets() {
         val session = drag ?: return
         val candidate = mergeAppAt(session)?.id
         if (mergeCandidate != candidate) {

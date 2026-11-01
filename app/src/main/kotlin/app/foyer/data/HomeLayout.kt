@@ -12,9 +12,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 /** Identifies a launchable activity across restarts. [user] is the profile's serial number. */
@@ -58,9 +55,17 @@ data class FolderContent(
     val slotEntries get() = (0..8).map { slot -> entries.find { it.slot == slot } }
 
     fun normalized(): FolderContent {
-        if (!large || entries.size > 9) return copy(entries = entries.map { it.copy(slot = null) }, large = false)
+        val ids = mutableSetOf<String>()
+        val repaired = entries.map { entry ->
+            if (entry.id.isNotBlank() && ids.add(entry.id)) entry else {
+                var id: String
+                do { id = java.util.UUID.randomUUID().toString() } while (!ids.add(id))
+                entry.copy(id = id)
+            }
+        }
+        if (!large || repaired.size > 9) return copy(entries = repaired.map { it.copy(slot = null) }, large = false)
         val occupied = mutableSetOf<Int>()
-        val fixed = entries.map { entry ->
+        val fixed = repaired.map { entry ->
             entry.copy(slot = entry.slot?.takeIf { it in 0..8 && occupied.add(it) })
         }.map { entry ->
             if (entry.slot != null) entry else entry.copy(slot = (0..8).first { occupied.add(it) })
@@ -172,12 +177,8 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
         if (!file.baseFile.exists()) HomeLayout() else {
             val raw = file.readFully().decodeToString()
             val normalized = Edits.normalizeFolders(json.decodeFromString<HomeLayout>(raw))
-            val items = (json.parseToJsonElement(raw) as? JsonObject)?.get("items") as? JsonArray
-            val migrated = items.orEmpty().any { item ->
-                val content = (item as? JsonObject)?.get("content") as? JsonObject
-                content?.get("type")?.jsonPrimitive?.content == "folder" && content["entries"] == null
-            }
-            // Persist new occurrence IDs before exposing a legacy layout to the UI.
+            // Also persist repaired or decoder-generated IDs in canonical files.
+            val migrated = json.parseToJsonElement(raw) != json.parseToJsonElement(json.encodeToString(HomeLayout.serializer(), normalized))
             if (migrated) runCatching { write(normalized) }.onFailure {
                 android.util.Log.e("Foyer", "Could not persist folder entry migration", it)
             }
