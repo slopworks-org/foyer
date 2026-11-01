@@ -45,6 +45,22 @@ class FolderEntriesTest {
         assertSame(stale, Edits.transferApp(stale, app, sourceFolder = 1, sourceEntry = b.id, targetFolder = 2))
     }
 
+    @Test fun crossFolderDuplicateTransferRetainsEachOccurrenceAndProfileCleanupRemovesAll() {
+        val a = FolderEntry(app); val b = FolderEntry(app); val c = FolderEntry(app)
+        val source = Edits.add(HomeLayout(), FolderContent(entries = listOf(a, b)), 0, 0)
+        val both = Edits.add(source, FolderContent(entries = listOf(c)), 3, 0)
+        val moved = Edits.transferApp(both, app, sourceFolder = 1, sourceEntry = b.id, targetFolder = 2)
+        assertEquals(listOf(a.id), folder(moved).entries.map { it.id })
+        assertEquals(listOf(c.id, b.id), folder(moved, 2).entries.map { it.id })
+        val large = Edits.folder(moved, 2, folder(moved, 2).copy(large = true))
+        val restored = json.decodeFromString<HomeLayout>(json.encodeToString(HomeLayout.serializer(), large))
+        assertEquals(listOf(c.id, b.id), folder(restored, 2).entries.map { it.id })
+        val cleaned = Edits.forgetProfiles(restored, setOf(app.user))
+        assertTrue(folder(cleaned).entries.isEmpty())
+        assertTrue(folder(cleaned, 2).entries.isEmpty())
+        assertTrue(folder(cleaned, 2).slots.all { it == null })
+    }
+
     @Test fun nineDuplicateEntriesFillCapacityAndRejectWithoutConsumingSource() {
         val full = Edits.add(HomeLayout(), FolderContent(List(9) { app }, true), 0, 0)
         val placed = Edits.add(full, AppContent(app), 3, 0)
