@@ -483,14 +483,17 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
             onDragCancel = state::cancelDrag,
         )
     }
-    DisposableEffect(item.id) { onDispose { state.appIconBounds.remove(item.id) } }
+    DisposableEffect(item.id) { onDispose { state.appIconBounds.remove(item.id); state.appIconMeasurements.remove(item.id) } }
     val ready = state.mergeReady == item.id
     val previewing = state.mergePreviews.any { it.target.id == item.id }
     val readiness = if (ready) stringResource(R.string.folder_merge_ready) else ""
     val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
     Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty(); stateDescription = readiness }, contentAlignment = Alignment.Center) {
         Box(Modifier.onGloballyPositioned {
-            if (content is AppContent) state.appIconBounds[item.id] = it.boundsInRoot()
+            if (content is AppContent) {
+                state.appIconBounds[item.id] = it.boundsInRoot()
+                state.appIconMeasurements[item.id] = item to state.feedScroll.value
+            }
         }) {
             if (content is ShortcutContent) Box(Modifier.scale(scale)) { ShortcutIcon(state, shortcut, app, iconSize) }
             else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer {

@@ -18,26 +18,22 @@ class MergeReadinessTest {
         readiness.update(null)
         assertEquals(listOf(true, false, true), events)
     }
-    @Test fun switchDisarmsBeforeFreshDwellAndPreviewCompletion() {
-        val events = mutableListOf<Pair<Long, Boolean>>()
-        var now = 0L
-        val readiness = MergeReadiness { events += now to it }
+    @Test fun switchDisarmsThenArmsWithoutWaitingForPreview() {
+        val events = mutableListOf<Boolean>()
+        val readiness = MergeReadiness(events::add)
         val icons = mapOf(1L to Rect(0f, 0f, 100f, 100f), 2L to Rect(110f, 0f, 210f, 100f))
-        var intent = MergeIntent().update(Offset(50f, 50f), icons, now)
-        fun refresh(time: Long, point: Offset, complete: Boolean = true, scrolling: Boolean = false) {
-            now = time
-            val next = intent.update(point, icons, now, scrolling)
-            if (next.candidate != intent.candidate) readiness.update(null)
-            intent = next
-            readiness.update(next.candidate?.takeIf { next.armed(now) && complete })
+        var intent = MergeIntent()
+        fun refresh(point: Offset, scrolling: Boolean = false) {
+            intent = intent.update(point, icons, scrolling)
+            readiness.update(intent.candidate)
         }
-        refresh(320, Offset(50f, 50f), complete = false) // dwell alone is insufficient
-        refresh(350, Offset(50f, 50f))
-        refresh(360, Offset(160f, 50f))
-        refresh(679, Offset(160f, 50f)) // stale old preview cannot arm new candidate
-        refresh(680, Offset(160f, 50f))
-        refresh(700, Offset(160f, 50f), scrolling = true)
-        refresh(720, Offset(160f, 50f))
-        assertEquals(listOf(350L to true, 360L to false, 680L to true, 700L to false), events)
+        refresh(Offset(50f, 50f))
+        repeat(20) { refresh(Offset(50f, 50f)) }
+        refresh(Offset(160f, 50f))
+        refresh(Offset(160f, 50f), scrolling = true)
+        refresh(Offset(160f, 50f))
+        readiness.consume()
+        readiness.update(null)
+        assertEquals(listOf(true, false, true, false, true), events)
     }
 }

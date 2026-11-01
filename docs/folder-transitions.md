@@ -1,16 +1,25 @@
 # Folder transition semantics
 
-Grouping feedback follows actual drop readiness: the same candidate must remain eligible
-for 320 ms and its preview must finish. Entering hover or reaching the dwell deadline
-alone is silent. Readiness emits one platform CONFIRM; leaving armed readiness emits
-one quieter CLOCK_TICK. View.performHapticFeedback respects system haptic settings.
-There is no vibrator override or new visible instruction.
+App grouping is immediately ready on entering an eligible icon's center (the inner
+70% of its physical bounds). One platform CONFIRM callback runs before the 240 ms
+preview morph starts. Recognition, dwell, animation completion and swap grace impose
+no eligibility delay. Original full icon bounds retain the candidate to prevent jitter.
+A switch emits one CLOCK_TICK exit followed by one CONFIRM for the new target.
+Repeated frames are silent. View.performHapticFeedback respects system settings.
 
-A target switch disarms before starting the new dwell. Scroll, occlusion, cancellation,
-removed targets and rejected validation disarm once. Preview animation callbacks never
-emit feedback, so stale callbacks cannot arm a different candidate. Accepted release
-retains readiness while validation runs and consumes it silently on commit; rejection
-exits normally. The injectable callback receives these same readiness edges for tests.
+Pointer-up refreshes geometry, including a first entry into the center on that event.
+Only release requests a mutation; authoritative source, target and installed-app
+validation still decide whether it commits. Fast passes do not group. Scroll, occlusion,
+removed targets, cancellation and rejected validation disarm once. Successful release
+consumes readiness without a cancel pulse. Animation callbacks never arm a target.
+The opaque lifted icon hands off continuously to the momentum landing. The preview
+continues from its current progress on early release and owns the target until both
+landing and morph complete, preventing a full-size target snap or opaque duplicate.
+
+Open-panel member gestures have no press scale or indication. The containing panel
+also has no indication: its empty click handler only blocks the dismissal scrim.
+Launch, accessibility actions, long press, drag and lift feedback remain available.
+There is no instructional text. Folder opening and closing and transfer flight remain.
 
 Singleton replacement is one atomic Edits/LayoutStore change, preserving placed ID,
 top-left cell and surviving occurrence provenance. Empty folders remain folders. The

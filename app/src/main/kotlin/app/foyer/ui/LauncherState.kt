@@ -239,6 +239,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     private var hoverJob: kotlinx.coroutines.Job? = null
     private var hoverFolder: Long? = null
     val appIconBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
+    // Bounds must belong to the currently measured layout, not a previous scroll/reflow.
+    internal val appIconMeasurements = mutableMapOf<Long, Pair<HomeItem, Int>>()
     var mergeCandidate by mutableStateOf<Long?>(null)
         private set
     var mergeReady by mutableStateOf<Long?>(null)
@@ -554,11 +556,10 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun refreshDragTargets() {
         val session = drag?.takeUnless { it.released } ?: return
-        val now = android.os.SystemClock.uptimeMillis()
         val scrolling = feedScroll.value != lastFeedScroll
         lastFeedScroll = feedScroll.value
         val icons = mergeIcons(session)
-        val next = mergeIntent.update(session.anchor, icons, now, scrolling)
+        val next = mergeIntent.update(session.anchor, icons, scrolling)
         if (next.candidate != mergeIntent.candidate) {
             reverseMergePreviews()
             mergeReadiness.update(null)
@@ -567,7 +568,10 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         mergeIntent = next
         mergeCandidate = next.candidate
         val candidate = next.candidate
-        if (candidate != null && next.recognized(now) && mergePreviews.none { it.target.id == candidate && !it.released }) {
+        // Readiness is spatial. Emit its edge before scheduling any visual response.
+        mergeReady = candidate
+        mergeReadiness.update(candidate)
+        if (candidate != null && mergePreviews.none { it.target.id == candidate && !it.released }) {
             val item = layout.items.find { it.id == candidate } ?: return
             val preview = mergePreviews.firstOrNull { it.target == item } ?: MergePreview(item, icons[candidate] ?: return, session.icon).also { mergePreviews += it }
             preview.job?.cancel()
@@ -576,10 +580,6 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 preview.progress.animateTo(1f, androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing))
             }
         }
-        mergeReady = candidate?.takeIf { id ->
-            next.armed(now) && mergePreviews.any { it.target.id == id && !it.released && it.progress.value >= 1f }
-        }
-        mergeReadiness.update(mergeReady)
         val id = (targetFor(session) as? DropTarget.Folder)?.id
         if (hoverFolder != id) {
             hoverJob?.cancel()
@@ -619,7 +619,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val dock = dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.let { androidx.compose.ui.geometry.Rect(0f, it.top, viewport.right, viewport.bottom) }
         if (dropLayerAt(s.anchor, viewport, folderPanelBounds.takeIf { openFolder != null }, dock) != DropLayer.Feed) return emptyMap()
         return layout.feed.filter { it.id != s.placedId && it.content is AppContent }.mapNotNull { item ->
-            appIconBounds[item.id]?.let { item.id to it }
+            appIconBounds[item.id]?.takeIf { appIconMeasurements[item.id] == (item to feedScroll.value) }?.let { item.id to it }
         }.toMap()
     }
 
@@ -778,7 +778,6 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 if (id != mergeReady) return null
                 return layout.items.find { it.id == id }?.let { DropTarget.Merge(it) }
             }
-            if (mergeIntent.blocksSwap(android.os.SystemClock.uptimeMillis())) return null
             folderSurfaceBounds.entries.firstOrNull { (id, bounds) ->
                 (layout.items.find { it.id == id }?.content as? FolderContent)?.large == true && bounds.contains(p)
             }?.let { (id, bounds) ->

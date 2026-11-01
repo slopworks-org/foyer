@@ -351,7 +351,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         Box(Modifier.offset { IntOffset(current.left.roundToInt(), current.top.roundToInt()) }
             .size(with(density) { current.width.toDp() }, with(density) { current.height.toDp() })
             .onGloballyPositioned { state.folderPanelBounds = it.boundsInRoot() }
-            .clip(RoundedCornerShape(corner)).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable {}) {
+            .clip(RoundedCornerShape(corner)).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable(interactionSource = null, indication = null) {}) {
             Column(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
                 .requiredSize(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
                 .offset { IntOffset((rect.left - current.left).roundToInt(), (rect.top - current.top).roundToInt()) }
@@ -563,7 +563,11 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val destinationVisible = if (!landing.returning && desktopDestination != null) true else if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible
     val destinationAlpha = if (destinationVisible) (if (landing.returning) returnVisual?.alpha else memberVisual?.alpha) ?: 1f else 0f
     val target by rememberUpdatedState(if (landing.validated && end != null) destination.center else null)
+    // A quick release may land before the target morph ends. Keep its presentation
+    // owner until the real folder can take over at identical geometry.
+    val morphComplete = state.mergePreviews.none { it.target.id == landing.folderId && it.committed && it.progress.value < 1f }
     val canFinish by rememberUpdatedState(end != null || folder == null || landing.returning)
+    val morphSettled by rememberUpdatedState(morphComplete)
     val velocity = remember(landing) { boundedReleaseVelocity(landing.velocity, icon * 18f) }
     val captureSeconds = remember(landing) { releaseCaptureSeconds(velocity.getDistance(), icon) }
     val appearanceSeconds = remember(landing) { releaseAppearanceSeconds(velocity.getDistance(), icon) }
@@ -591,7 +595,7 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
             if (landing.validated) waitingAge += dt
             if (landing.validated && canFinish) appearanceAge += dt
             previous = now
-            if (landing.validated && appearanceAge >= captureSeconds + appearanceSeconds &&
+            if (landing.validated && morphSettled && appearanceAge >= captureSeconds + appearanceSeconds &&
                 (target == null || (motion.position - target!!).getDistance() < .75f && motion.velocity.getDistance() < 15f) || waitingAge > 3f) {
                 state.finishLanding(landing)
                 break
