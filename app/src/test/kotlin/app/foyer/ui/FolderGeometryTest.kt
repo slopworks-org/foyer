@@ -20,7 +20,7 @@ class FolderGeometryTest {
         val initial = Edits.add(HomeLayout(), FolderContent(keys.take(4)), 0, 0)
         val five = Edits.transferApp(initial, keys[4], targetFolder = 1)
         assertEquals(listOf(keys[0], keys[1], keys[4], keys[2], keys[3]), (five.items.first().content as FolderContent).apps)
-        assertSame(five, Edits.transferApp(five, keys[4], targetFolder = 1))
+        assertEquals(6, (Edits.transferApp(five, keys[4], targetFolder = 1).items.first().content as FolderContent).entries.size)
         val four = Edits.transferApp(five, keys[4], sourceFolder = 1, x = 4, y = 4)
         assertEquals(keys.take(4), (four.items.first().content as FolderContent).apps)
         assertEquals(listOf(keys[0], keys[1], null, keys[2], keys[3]), folderDragOrder(keys.take(4), null, Int.MAX_VALUE))

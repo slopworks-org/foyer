@@ -12,6 +12,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 /** Identifies a launchable activity across restarts. [user] is the profile's serial number. */
@@ -35,29 +38,66 @@ data class ShortcutContent(val pkg: String, val shortcutId: String, val user: Lo
 @SerialName("widget")
 data class WidgetContent(val widgetId: Int, val provider: String) : Content
 
+/** One independently movable occurrence. Slot is absolute only while the folder is large. */
 @Serializable
+data class FolderEntry(val app: AppKey, val id: String = java.util.UUID.randomUUID().toString(), val slot: Int? = null)
+
+@Serializable(with = FolderSerializer::class)
 @SerialName("folder")
 data class FolderContent(
-    /** Membership, retained for old files; occupied row-major order while large. */
-    val apps: List<AppKey> = emptyList(),
+    val entries: List<FolderEntry> = emptyList(),
     val large: Boolean = false,
     val name: String = "",
-    /** Absolute row-major positions in large mode; null is an intentionally empty cell. */
-    val slots: List<AppKey?> = emptyList(),
 ) : Content {
+    /** Legacy construction and decoding consume each occurrence once, preserving occupied cells. */
+    constructor(apps: List<AppKey>, large: Boolean = false, name: String = "", slots: List<AppKey?> = emptyList()) :
+        this(legacyEntries(apps, slots), large, name)
+
+    val apps get() = entries.map { it.app }
+    val slots get() = if (!large) emptyList() else (0..8).map { slot -> entries.find { it.slot == slot }?.app }
+    val slotEntries get() = (0..8).map { slot -> entries.find { it.slot == slot } }
+
     fun normalized(): FolderContent {
-        val members = apps.distinct()
-        // Preserve malformed legacy over-capacity folders without truncating their membership.
-        if (!large || members.size > 9) return copy(apps = members, large = false, slots = emptyList())
-        val seen = mutableSetOf<AppKey>()
-        val fixed = MutableList<AppKey?>(9) { index ->
-            slots.getOrNull(index)?.takeIf { it in members && seen.add(it) }
-        }
-        members.filterNot { it in seen }.forEach { fixed[fixed.indexOf(null)] = it }
-        return copy(apps = fixed.filterNotNull(), name = "", slots = fixed)
+        if (!large || entries.size > 9) return copy(entries = entries.map { it.copy(slot = null) }, large = false)
+        val occupied = mutableSetOf<Int>()
+        val fixed = entries.map { entry ->
+            entry.copy(slot = entry.slot?.takeIf { it in 0..8 && occupied.add(it) })
+        }.map { entry ->
+            if (entry.slot != null) entry else entry.copy(slot = (0..8).first { occupied.add(it) })
+        }.sortedBy { it.slot }
+        return copy(entries = fixed, name = "")
     }
 
-    fun without(keys: Set<AppKey>): FolderContent = copy(apps = apps - keys).normalized()
+    fun without(keys: Set<AppKey>): FolderContent = copy(entries = entries.filterNot { it.app in keys }).normalized()
+    fun withoutEntry(id: String): FolderContent = copy(entries = entries.filterNot { it.id == id }).normalized()
+}
+
+private fun legacyEntries(apps: List<AppKey>, slots: List<AppKey?>): List<FolderEntry> {
+    val remaining = apps.map { FolderEntry(it) }.toMutableList()
+    val result = mutableListOf<FolderEntry>()
+    slots.take(9).forEachIndexed { index, key ->
+        val member = remaining.indexOfFirst { it.app == key }
+        if (member >= 0) result += remaining.removeAt(member).copy(slot = index)
+    }
+    return result + remaining
+}
+
+/** Read old apps/slots files, write only the canonical occurrence representation. */
+@Serializable
+@SerialName("folder")
+private data class FolderWire(
+    val entries: List<FolderEntry>? = null, val large: Boolean = false, val name: String = "",
+    val apps: List<AppKey> = emptyList(), val slots: List<AppKey?> = emptyList(),
+)
+
+object FolderSerializer : kotlinx.serialization.KSerializer<FolderContent> {
+    override val descriptor = FolderWire.serializer().descriptor
+    override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: FolderContent) =
+        encoder.encodeSerializableValue(FolderWire.serializer(), FolderWire(value.entries, value.large, value.name))
+    override fun deserialize(decoder: kotlinx.serialization.encoding.Decoder): FolderContent {
+        val wire = decoder.decodeSerializableValue(FolderWire.serializer())
+        return FolderContent(wire.entries ?: legacyEntries(wire.apps, wire.slots), wire.large, wire.name).normalized()
+    }
 }
 
 /**
@@ -129,7 +169,20 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
     val layout: StateFlow<HomeLayout> = _layout.asStateFlow()
 
     private fun load(): HomeLayout = try {
-        if (file.baseFile.exists()) Edits.normalizeFolders(json.decodeFromString<HomeLayout>(file.readFully().decodeToString())) else HomeLayout()
+        if (!file.baseFile.exists()) HomeLayout() else {
+            val raw = file.readFully().decodeToString()
+            val normalized = Edits.normalizeFolders(json.decodeFromString<HomeLayout>(raw))
+            val items = (json.parseToJsonElement(raw) as? JsonObject)?.get("items") as? JsonArray
+            val migrated = items.orEmpty().any { item ->
+                val content = (item as? JsonObject)?.get("content") as? JsonObject
+                content?.get("type")?.jsonPrimitive?.content == "folder" && content["entries"] == null
+            }
+            // Persist new occurrence IDs before exposing a legacy layout to the UI.
+            if (migrated) runCatching { write(normalized) }.onFailure {
+                android.util.Log.e("Foyer", "Could not persist folder entry migration", it)
+            }
+            normalized
+        }
     } catch (e: Exception) {
         android.util.Log.e("Foyer", "Broken home.json, starting fresh", e)
         HomeLayout()
@@ -144,6 +197,10 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
     @Synchronized
     private fun save(layout: HomeLayout) {
         if (layout !== _layout.value) return // a newer edit will save itself
+        write(layout)
+    }
+
+    private fun write(layout: HomeLayout) {
         val out = file.startWrite()
         try {
             out.write(json.encodeToString(HomeLayout.serializer(), layout).encodeToByteArray())
@@ -166,7 +223,7 @@ object Edits {
     fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout {
         val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
         val height = if (content is FolderContent) span else h
-        if (content is FolderContent && (dock || content.apps.distinct() != content.apps || content.large && content.apps.size > 9)) return l
+        if (content is FolderContent && (dock || content.entries.map { it.id }.distinct().size != content.entries.size || content.large && content.apps.size > 9)) return l
         if (dock) { if (!l.dockSlotFree(x)) return l } else if (!l.isFree(x, y, span, height)) return l
         return l.copy(items = l.items + HomeItem(l.nextId, if (content is FolderContent) content.normalized() else content, x, y, span, height, dock), nextId = l.nextId + 1)
     }
@@ -198,62 +255,86 @@ object Edits {
     fun folder(l: HomeLayout, id: Long, folder: FolderContent): HomeLayout {
         val item = l.items.find { it.id == id && it.content is FolderContent && !it.dock } ?: return l
         val span = if (folder.large) 2 else 1
-        if (folder.apps != folder.apps.distinct() || folder.large && folder.apps.size > 9 ||
+        if (folder.entries.map { it.id }.distinct().size != folder.entries.size || folder.large && folder.apps.size > 9 ||
             !l.isFree(item.x, item.y, span, span, id)) return l
         val old = item.content as FolderContent
         // Mode changes deliberately pack occupied row-major order; large mode has no name.
-        val normalized = (if (old.large != folder.large) folder.copy(slots = emptyList()) else folder).normalized()
+        val normalized = (if (old.large != folder.large) folder.copy(entries = folder.entries.map { it.copy(slot = null) }) else folder).normalized()
         return l.copy(items = l.items.map { if (it.id == id) it.copy(content = normalized, w = span, h = span) else it })
     }
 
-    /** A drag only commits against current membership, placement and installed-app identity. */
+    /** Atomic occurrence transfer; a stale or ambiguous source never consumes anything. */
     fun transferApp(
         l: HomeLayout, key: AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,
         targetFolder: Long? = null, index: Int = Int.MAX_VALUE,
         x: Int = 0, y: Int = 0, dock: Boolean = false, available: Boolean = true,
+        sourceEntry: String? = null,
     ): HomeLayout {
         if (!available || sourceItem != null && sourceFolder != null) return l
         val source = sourceItem?.let { id -> l.items.find { it.id == id } }
         if (sourceItem != null && source?.content != AppContent(key)) return l
         val from = sourceFolder?.let { id -> l.items.find { it.id == id }?.content as? FolderContent }
-        if (sourceFolder != null && (from == null || key !in from.apps)) return l
-        val target = targetFolder?.let { id -> l.items.find { it.id == id }?.content as? FolderContent }
+        val entry = from?.entries?.let { entries ->
+            if (sourceEntry != null) entries.singleOrNull { it.id == sourceEntry && it.app == key }
+            else entries.singleOrNull { it.app == key }
+        }
+        if (sourceFolder != null && entry == null) return l
+        val target = targetFolder?.let { id -> l.items.find { it.id == id && !it.dock }?.content as? FolderContent }
         if (targetFolder != null && target == null) return l
         if (target != null) {
-            if (sourceFolder != targetFolder && (key in target.apps || target.large && target.apps.size >= 9)) return l
+            val same = sourceFolder == targetFolder
+            if (!same && target.large && target.entries.size >= 9) return l
+            val incoming = entry ?: FolderEntry(key)
+            if (!same && target.entries.any { it.id == incoming.id }) return l
+            val updated: List<FolderEntry>
             if (target.large) {
-                val fixed = target.normalized().slots.toMutableList()
-                val old = fixed.indexOf(key)
-                val slot = if (index == Int.MAX_VALUE) {
-                    if (old >= 0) old else fixed.indexOf(null)
-                } else index
+                val fixed = target.normalized().slotEntries.toMutableList()
+                val old = if (same) fixed.indexOfFirst { it?.id == incoming.id } else -1
+                val slot = if (index == Int.MAX_VALUE) { if (old >= 0) old else fixed.indexOf(null) } else index
                 if (slot !in 0..8 || old < 0 && fixed[slot] != null) return l
-                if (old >= 0) fixed[old] = fixed[slot]
-                fixed[slot] = key
-                var result = folder(l, targetFolder, target.copy(apps = fixed.filterNotNull(), slots = fixed))
-                if (result === l) return l
-                if (sourceItem != null) result = remove(result, sourceItem)
-                if (sourceFolder != null && sourceFolder != targetFolder) result = folder(result, sourceFolder, from!!.without(setOf(key)))
-                return result
+                if (old >= 0) fixed[old] = fixed[slot]?.copy(slot = old)
+                fixed[slot] = incoming.copy(slot = slot)
+                updated = fixed.filterNotNull()
+            } else {
+                val old = if (same) target.entries.indexOfFirst { it.id == incoming.id } else -1
+                val members = target.entries.filterNot { same && it.id == incoming.id }.toMutableList()
+                val insertion = when {
+                    old >= 0 && old < index && index != Int.MAX_VALUE -> index - 1
+                    !same && target.entries.size == 4 && index >= 4 -> 2
+                    else -> index
+                }
+                members.add(insertion.coerceIn(0, members.size), incoming.copy(slot = null))
+                updated = members
             }
-            val members = target.apps - key
-            val insertion = when {
-                sourceFolder == targetFolder && target.apps.indexOf(key) < index && index != Int.MAX_VALUE -> index - 1
-                // Expanding a small 2x2 grid leaves its existing members in the same cells.
-                sourceFolder != targetFolder && !target.large && target.apps.size == 4 && index >= 4 -> 2
-                else -> index
-            }
-            val updated = members.toMutableList().apply { add(insertion.coerceIn(0, size), key) }
-            var result = folder(l, targetFolder, target.copy(apps = updated))
+            var result = folder(l, targetFolder, target.copy(entries = updated))
             if (result === l) return l
             if (sourceItem != null) result = remove(result, sourceItem)
-            if (sourceFolder != null && sourceFolder != targetFolder) result = folder(result, sourceFolder, from!!.without(setOf(key)))
+            if (sourceFolder != null && !same) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
             return result
         }
         if (source != null) return move(l, source.id, x, y, dock)
         val added = add(l, AppContent(key), x, y, dock = dock)
         if (added === l) return l
-        return if (sourceFolder == null) added else folder(added, sourceFolder, from!!.without(setOf(key)))
+        return if (sourceFolder == null) added else folder(added, sourceFolder, from!!.withoutEntry(entry!!.id))
+    }
+
+    /** Replace the target in place only after validating the whole move. */
+    fun mergeApps(l: HomeLayout, target: HomeItem, key: AppKey, sourceItem: HomeItem? = null,
+                  sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true): HomeLayout {
+        if (!available || target.dock || target.w != 1 || target.h != 1 || target.content !is AppContent ||
+            !l.isFree(target.x, target.y, 1, 1, target.id) ||
+            l.items.find { it.id == target.id } != target || sourceItem?.id == target.id ||
+            sourceItem != null && sourceFolder != null) return l
+        if (sourceItem != null && (l.items.find { it.id == sourceItem.id } != sourceItem || sourceItem.content != AppContent(key))) return l
+        val from = l.items.find { it.id == sourceFolder }?.content as? FolderContent
+        val entry = from?.entries?.singleOrNull { it.id == sourceEntry && it.app == key }
+        if (sourceFolder != null && entry == null) return l
+        var result = l.copy(items = l.items.map {
+            if (it.id == target.id) it.copy(content = FolderContent(entries = listOf(FolderEntry(target.content.app), entry?.copy(slot = null) ?: FolderEntry(key)))) else it
+        })
+        if (sourceItem != null) result = remove(result, sourceItem.id)
+        if (sourceFolder != null) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
+        return result
     }
 
     fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(

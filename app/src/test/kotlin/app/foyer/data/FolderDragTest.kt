@@ -72,7 +72,7 @@ class FolderDragTest {
         val full = Edits.add(base(true, (1..9).map(::key)), AppContent(key(10)), 3, 0)
         assertSame(full, Edits.transferApp(full, key(10), sourceItem = 2, targetFolder = 1))
         val duplicate = Edits.add(base(apps = listOf(key(1))), AppContent(key(1)), 3, 0)
-        assertSame(duplicate, Edits.transferApp(duplicate, key(1), sourceItem = 2, targetFolder = 1))
+        assertEquals(listOf(key(1), key(1)), members(Edits.transferApp(duplicate, key(1), sourceItem = 2, targetFolder = 1)))
         assertSame(duplicate, Edits.transferApp(duplicate, key(1), targetFolder = 1, available = false))
         assertSame(duplicate, Edits.transferApp(duplicate, key(2), sourceFolder = 1, x = 4))
         // Cancel has no mutation: transfer is only invoked on a valid completed drop.

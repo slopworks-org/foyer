@@ -43,10 +43,11 @@ class HomeLayoutTest {
         assertEquals(2, original.items.single().h)
     }
 
-    @Test fun capacityAndDuplicateFailuresAreAtomic() {
+    @Test fun capacityAndIdentityFailuresAreAtomic() {
         val small = layout(FolderContent((1..10).map { app(it) }))
         assertSame(small, Edits.folder(small, 1, (small.items.single().content as FolderContent).copy(large = true)))
-        assertSame(small, Edits.folder(small, 1, FolderContent(listOf(app(1), app(1)))))
+        val entry = FolderEntry(app(1))
+        assertSame(small, Edits.folder(small, 1, FolderContent(entries = listOf(entry, entry))))
         assertTrue(Edits.add(HomeLayout(), FolderContent((1..10).map { app(it) }, true), 0, 0).items.isEmpty())
     }
 
@@ -65,7 +66,7 @@ class HomeLayoutTest {
     @Test fun membershipOrderingAndEmptyTitleAreExplicit() {
         val start = layout(FolderContent(listOf(app(1), app(2)), name = "Tools"))
         val edited = Edits.folder(start, 1, FolderContent(listOf(app(2), app(3), app(1)), name = ""))
-        assertEquals(FolderContent(listOf(app(2), app(3), app(1))), edited.items.single().content)
+        assertEquals(listOf(app(2), app(3), app(1)), (edited.items.single().content as FolderContent).apps)
         val empty = Edits.folder(edited, 1, FolderContent())
         assertEquals(1, empty.items.size)
         assertEquals(FolderContent(), empty.items.single().content)
