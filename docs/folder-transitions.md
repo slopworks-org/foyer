@@ -48,9 +48,10 @@ Folder app drops mark the resulting cell with the desktop landing treatment: 4dp
 inset, 14% fill, 45% outline and a 1.5dp stroke. Surface-relative color keeps the
 frame legible in both themes. Drawing behind the cell preserves icon measurement,
 gesture ownership and lazy placement; the panel grid clips the frame while scrolling.
-Large slots are smaller than the lifted icon, so their measured cell rim draws above
-the opaque drag icon while their fill stays below it. Dense large slots use a 1dp
-inset and quarter-icon corner radius so the rim remains distinct from icon artwork.
+Large slots are smaller than the lifted icon, so four right-angle target corners draw
+above the opaque drag icon while the cell fill stays below it. Each corner uses a 2dp
+surface-contrast stroke over a 4dp surface-colored backing, inset 2dp inside the exact
+cell. The broken perimeter distinguishes the target from rounded icon artwork in both themes.
 The preview's order and occurrence ID come from the same transfer plan as release,
 including fifth-item reflow, duplicate apps, sparse large slots and swaps. Invalid
 plans have no landing frame. Release removes the frame immediately while retaining

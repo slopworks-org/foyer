@@ -706,11 +706,27 @@ internal fun LargeFolderDropOutline(state: LauncherState) {
     val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: Float.POSITIVE_INFINITY
     val density = LocalDensity.current
     val color = MaterialTheme.colorScheme.onSurface
+    val backing = MaterialTheme.colorScheme.surface
     Box(Modifier.fillMaxSize().drawWithContent {
         clipRect(viewport.left, viewport.top, viewport.right, minOf(viewport.bottom, dockTop)) { this@drawWithContent.drawContent() }
     }) {
         Box(Modifier.offset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
             .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
-            .landingFrame(color, state.iconSize / 4, fill = false, inset = 1.dp))
+            .drawWithContent {
+                // Broken right-angle corners read as a target, rather than an icon border.
+                // The backing keeps them legible over arbitrary opaque icon artwork.
+                val inset = 2.dp.toPx()
+                val right = size.width - inset
+                val bottom = size.height - inset
+                val length = minOf(size.width, size.height) * .28f
+                val corners = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(inset, inset + length); lineTo(inset, inset); lineTo(inset + length, inset)
+                    moveTo(right - length, inset); lineTo(right, inset); lineTo(right, inset + length)
+                    moveTo(right, bottom - length); lineTo(right, bottom); lineTo(right - length, bottom)
+                    moveTo(inset + length, bottom); lineTo(inset, bottom); lineTo(inset, bottom - length)
+                }
+                drawPath(corners, backing, style = androidx.compose.ui.graphics.drawscope.Stroke(4.dp.toPx()))
+                drawPath(corners, color, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+            })
     }
 }

@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -132,6 +133,50 @@ class FolderDropTargetTest {
                 rule.runOnIdle { state.endDrag() }
                 rule.waitUntil(10000) { rule.mainClock.advanceTimeBy(100); state.drag == null }
                 assertEquals("e0", folder().slotEntries[slot]?.id)
+            }
+            // Contrast over artwork unlike Calendar, centered and offset within the same slot.
+            val solidApp = graph.apps.apps.value.first { it.key != app.key }
+            fixture(2, true)
+            for (offset in listOf(0f, .28f)) {
+                rule.runOnIdle {
+                    state.cancelDrag(); state.folderLanding?.let(state::finishLanding)
+                    val cell = largeFolderCell(state.folderSurfaceBounds.getValue(1), 4, state.folderInsetPx)
+                    state.startDrag(DragSession(DragSource.New(AppContent(solidApp.key)), solidApp.icon,
+                        Offset.Zero, cell.center + Offset(cell.width * offset, 0f)))
+                }
+                rule.mainClock.advanceTimeBy(800)
+                marker(preview()).assertExists()
+                capture("large-artwork-${if (offset == 0f) "center" else "offset"}")
+            }
+            fixture(2, true)
+            rule.runOnIdle {
+                graph.layout.edit { Edits.add(it, AppContent(app.key), 0, 30) }
+            }
+            rule.mainClock.advanceTimeBy(800)
+            rule.runOnIdle {
+                val surface = state.folderSurfaceBounds.getValue(1)
+                val cell = largeFolderCell(surface, 1, state.folderInsetPx)
+                val top = state.viewportCoords!!.boundsInRoot().top
+                state.feedScroll.dispatchRawDelta(cell.center.y - top)
+            }
+            rule.mainClock.advanceTimeBy(800)
+            rule.runOnIdle {
+                val surface = state.folderSurfaceBounds.getValue(1)
+                val cell = largeFolderCell(surface, 1, state.folderInsetPx)
+                val top = state.viewportCoords!!.boundsInRoot().top
+                assertTrue(cell.top < top)
+                assertTrue(cell.bottom > top)
+                state.startDrag(DragSession(DragSource.New(AppContent(solidApp.key)), solidApp.icon,
+                    Offset(0f, -600f), Offset(cell.center.x, top + 603f)))
+            }
+            // Keep the pointer outside the auto-scroll zone while its icon anchor targets the clipped cell.
+            rule.mainClock.advanceTimeBy(800)
+            assertEquals(1, preview().slot)
+            capture("large-clipped-top")
+            assertEquals(1, preview().slot)
+            rule.runOnIdle {
+                state.cancelDrag(); state.folderLanding?.let(state::finishLanding)
+                state.feedScroll.dispatchRawDelta(-state.feedScroll.value.toFloat())
             }
             fixture(2, true)
             rule.runOnIdle {
