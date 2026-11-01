@@ -120,6 +120,7 @@ fun FoyerRoot(state: LauncherState) {
                 BackHandler(enabled = state.drag != null) { state.cancelDrag() }
                 FolderOverlay(state, layout)
                 DragGhost(state, iconSize = state.iconSize)
+                MergeHintOverlay(state)
                 FolderLandingOverlay(state, layout)
                 MenuOverlay(state)
                 WidgetPicker(state)

@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -496,12 +496,7 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
                 scaleY = scaleX
             })
         }
-        if (merging) Text(stringResource(if (ready) R.string.folder_merge_ready else R.string.folder_merge_hint),
-            color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall,
-            maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.align(Alignment.BottomCenter).offset(y = 28.dp).requiredWidth(144.dp)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp))
+
     }
 }
 
@@ -838,6 +833,30 @@ private fun DockSearchBar(modifier: Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(MenuIcons.Search, null, Modifier.size(24.dp), tint = colors.onSurfaceVariant)
+    }
+}
+
+/** Root-space feedback remains readable beside edge columns and above the dock in either locale. */
+@Composable
+internal fun MergeHintOverlay(state: LauncherState) {
+    if (state.drag == null) return
+    val candidate = state.mergeCandidate ?: return
+    val bounds = state.appIconBounds[candidate] ?: return
+    val root = state.rootCoords ?: return
+    val density = LocalDensity.current
+    val margin = with(density) { 8.dp.toPx() }
+    val width = with(density) { 176.dp.toPx() }.coerceAtMost(root.size.width - margin * 2)
+    val height = with(density) { 32.dp.toPx() }
+    val ceiling = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: root.size.height.toFloat()
+    val x = (bounds.center.x - width / 2).coerceIn(margin, (root.size.width - width - margin).coerceAtLeast(margin))
+    val below = bounds.bottom + margin
+    val y = (if (below + height + margin <= ceiling) below else bounds.top - height - margin).coerceAtLeast(margin)
+    Box(Modifier.absoluteOffset { IntOffset(x.roundToInt(), y.roundToInt()) }
+        .requiredSize(with(density) { width.toDp() }, 32.dp)
+        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+        Text(stringResource(if (state.mergeReady == candidate) R.string.folder_merge_ready else R.string.folder_merge_hint),
+            color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall,
+            maxLines = 1, textAlign = TextAlign.Center)
     }
 }
 
