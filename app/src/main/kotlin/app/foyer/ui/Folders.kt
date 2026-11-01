@@ -660,14 +660,15 @@ internal fun FolderCollapseOverlay(state: LauncherState) {
                 }))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh))
             val oldFolder = collapse.item.content as FolderContent
+            val captionSurface = if (collapse.panel) surface else collapse.surface
             if (!oldFolder.large && oldFolder.name.isNotEmpty()) Text(oldFolder.name,
                 color = if (collapse.panel) MaterialTheme.colorScheme.onSurface else LocalOnWallpaper.current.text,
                 style = if (collapse.panel) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
                 textAlign = TextAlign.Center, maxLines = 1,
-                modifier = Modifier.offset { IntOffset(collapse.surface.left.roundToInt(),
-                    (if (collapse.panel) collapse.surface.bottom - with(density) { 48.dp.toPx() } else collapse.surface.bottom + with(density) { 4.dp.toPx() }).roundToInt()) }
-                    .width(with(density) { collapse.surface.width.toDp() }).then(if (collapse.panel) Modifier.height(48.dp).wrapContentHeight() else Modifier)
-                    .graphicsLayer { alpha = 1f - close })
+                modifier = Modifier.offset { IntOffset(captionSurface.left.roundToInt(),
+                    (if (collapse.panel) captionSurface.bottom - with(density) { 48.dp.toPx() } else captionSurface.bottom + with(density) { 4.dp.toPx() }).roundToInt()) }
+                    .width(with(density) { captionSurface.width.toDp() }).then(if (collapse.panel) Modifier.height(48.dp).wrapContentHeight() else Modifier)
+                    .graphicsLayer { alpha = (1f - close * if (collapse.panel) 2f else 1f).coerceAtLeast(0f) })
             AppIcon(collapse.icon, state.iconSize, Modifier.offset {
                 IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt())
             }.graphicsLayer { scaleX = frame.width / icon; scaleY = frame.height / icon }.testTag("folder-survivor-${collapse.item.id}"))
