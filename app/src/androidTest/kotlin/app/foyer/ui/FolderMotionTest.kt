@@ -549,6 +549,26 @@ class FolderMotionTest {
         }
         rule.waitForIdle()
         rule.runOnIdle { assertEquals(before, state.graph.layout.layout.value); assertNull(state.folderLanding) }
+        lateinit var replacement: DragSession
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread {
+            val source = before.items.last()
+            state.startDrag(DragSession(DragSource.Placed(source), state.appFor(source.content)?.icon,
+                Offset.Zero, state.folderBounds[folderId]!!.center))
+            state.endDrag(Offset(1500f, 0f))
+            replacement = DragSession(DragSource.New(AppContent(apps[8])), null, Offset.Zero, state.folderBounds[folderId]!!.center)
+            state.startDrag(replacement)
+        }
+        rule.mainClock.advanceTimeBy(320)
+        rule.runOnUiThread {
+            assertEquals(before, state.graph.layout.layout.value)
+            assertSame(replacement, state.drag)
+            assertNull(state.folderLanding)
+            state.cancelDrag()
+        }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.runOnIdle { assertEquals(before, state.graph.layout.layout.value) }
     }
 
     @Test fun fiveMemberIdentityAndThemedLabels() {
