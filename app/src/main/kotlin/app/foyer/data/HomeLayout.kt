@@ -38,10 +38,27 @@ data class WidgetContent(val widgetId: Int, val provider: String) : Content
 @Serializable
 @SerialName("folder")
 data class FolderContent(
+    /** Membership, retained for old files; occupied row-major order while large. */
     val apps: List<AppKey> = emptyList(),
     val large: Boolean = false,
     val name: String = "",
-) : Content
+    /** Absolute row-major positions in large mode; null is an intentionally empty cell. */
+    val slots: List<AppKey?> = emptyList(),
+) : Content {
+    fun normalized(): FolderContent {
+        val members = apps.distinct()
+        // Preserve malformed legacy over-capacity folders without truncating their membership.
+        if (!large || members.size > 9) return copy(apps = members, large = false, slots = emptyList())
+        val seen = mutableSetOf<AppKey>()
+        val fixed = MutableList<AppKey?>(9) { index ->
+            slots.getOrNull(index)?.takeIf { it in members && seen.add(it) }
+        }
+        members.filterNot { it in seen }.forEach { fixed[fixed.indexOf(null)] = it }
+        return copy(apps = fixed.filterNotNull(), name = "", slots = fixed)
+    }
+
+    fun without(keys: Set<AppKey>): FolderContent = copy(apps = apps - keys).normalized()
+}
 
 /**
  * Something placed on the home screen. Every item owns explicit cells, so removing or
@@ -112,7 +129,7 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
     val layout: StateFlow<HomeLayout> = _layout.asStateFlow()
 
     private fun load(): HomeLayout = try {
-        if (file.baseFile.exists()) json.decodeFromString<HomeLayout>(file.readFully().decodeToString()) else HomeLayout()
+        if (file.baseFile.exists()) Edits.normalizeFolders(json.decodeFromString<HomeLayout>(file.readFully().decodeToString())) else HomeLayout()
     } catch (e: Exception) {
         android.util.Log.e("Foyer", "Broken home.json, starting fresh", e)
         HomeLayout()
@@ -139,12 +156,19 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
 
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
+    fun normalizeFolders(l: HomeLayout): HomeLayout = l.copy(items = l.items.map { item ->
+        val folder = item.content as? FolderContent ?: return@map item
+        val normalized = folder.normalized()
+        // A legacy oversized folder becomes small; its old footprint can safely be released.
+        item.copy(content = normalized, w = if (normalized.large) 2 else 1, h = if (normalized.large) 2 else 1)
+    })
+
     fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout {
         val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
         val height = if (content is FolderContent) span else h
         if (content is FolderContent && (dock || content.apps.distinct() != content.apps || content.large && content.apps.size > 9)) return l
         if (dock) { if (!l.dockSlotFree(x)) return l } else if (!l.isFree(x, y, span, height)) return l
-        return l.copy(items = l.items + HomeItem(l.nextId, content, x, y, span, height, dock), nextId = l.nextId + 1)
+        return l.copy(items = l.items + HomeItem(l.nextId, if (content is FolderContent) content.normalized() else content, x, y, span, height, dock), nextId = l.nextId + 1)
     }
 
     fun addFirstFree(l: HomeLayout, content: Content, w: Int = 1, h: Int = 1): HomeLayout {
@@ -176,7 +200,10 @@ object Edits {
         val span = if (folder.large) 2 else 1
         if (folder.apps != folder.apps.distinct() || folder.large && folder.apps.size > 9 ||
             !l.isFree(item.x, item.y, span, span, id)) return l
-        return l.copy(items = l.items.map { if (it.id == id) it.copy(content = folder, w = span, h = span) else it })
+        val old = item.content as FolderContent
+        // Mode changes deliberately pack occupied row-major order; large mode has no name.
+        val normalized = (if (old.large != folder.large) folder.copy(slots = emptyList()) else folder).normalized()
+        return l.copy(items = l.items.map { if (it.id == id) it.copy(content = normalized, w = span, h = span) else it })
     }
 
     /** A drag only commits against current membership, placement and installed-app identity. */
@@ -194,6 +221,21 @@ object Edits {
         if (targetFolder != null && target == null) return l
         if (target != null) {
             if (sourceFolder != targetFolder && (key in target.apps || target.large && target.apps.size >= 9)) return l
+            if (target.large) {
+                val fixed = target.normalized().slots.toMutableList()
+                val old = fixed.indexOf(key)
+                val slot = if (index == Int.MAX_VALUE) {
+                    if (old >= 0) old else fixed.indexOf(null)
+                } else index
+                if (slot !in 0..8 || old < 0 && fixed[slot] != null) return l
+                if (old >= 0) fixed[old] = fixed[slot]
+                fixed[slot] = key
+                var result = folder(l, targetFolder, target.copy(apps = fixed.filterNotNull(), slots = fixed))
+                if (result === l) return l
+                if (sourceItem != null) result = remove(result, sourceItem)
+                if (sourceFolder != null && sourceFolder != targetFolder) result = folder(result, sourceFolder, from!!.without(setOf(key)))
+                return result
+            }
             val members = target.apps - key
             val insertion = when {
                 sourceFolder == targetFolder && target.apps.indexOf(key) < index && index != Int.MAX_VALUE -> index - 1
@@ -203,27 +245,28 @@ object Edits {
             }
             val updated = members.toMutableList().apply { add(insertion.coerceIn(0, size), key) }
             var result = folder(l, targetFolder, target.copy(apps = updated))
+            if (result === l) return l
             if (sourceItem != null) result = remove(result, sourceItem)
-            if (sourceFolder != null && sourceFolder != targetFolder) result = folder(result, sourceFolder, from!!.copy(apps = from.apps - key))
+            if (sourceFolder != null && sourceFolder != targetFolder) result = folder(result, sourceFolder, from!!.without(setOf(key)))
             return result
         }
         if (source != null) return move(l, source.id, x, y, dock)
         val added = add(l, AppContent(key), x, y, dock = dock)
         if (added === l) return l
-        return if (sourceFolder == null) added else folder(added, sourceFolder, from!!.copy(apps = from.apps - key))
+        return if (sourceFolder == null) added else folder(added, sourceFolder, from!!.without(setOf(key)))
     }
 
     fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(
         items = l.items.map { item ->
             val folder = item.content as? FolderContent
-            if (folder == null) item else item.copy(content = folder.copy(apps = folder.apps - missing))
+            if (folder == null) item else item.copy(content = folder.without(missing))
         },
     )
 
     fun forgetProfiles(l: HomeLayout, users: Set<Long>): HomeLayout = l.copy(
         items = l.items.map { item ->
             val c = item.content
-            if (c is FolderContent) item.copy(content = c.copy(apps = c.apps.filterNot { it.user in users })) else item
+            if (c is FolderContent) item.copy(content = c.without(c.apps.filter { it.user in users }.toSet())) else item
         },
     )
 
@@ -233,7 +276,7 @@ object Edits {
                 is AppContent -> item.takeUnless { c.app.pkg == pkg && c.app.user == user }
                 is ShortcutContent -> item.takeUnless { c.pkg == pkg && c.user == user }
                 is WidgetContent -> item.takeUnless { c.provider.startsWith("$pkg/") }
-                is FolderContent -> item.copy(content = c.copy(apps = c.apps.filterNot { it.pkg == pkg && it.user == user }))
+                is FolderContent -> item.copy(content = c.without(c.apps.filter { it.pkg == pkg && it.user == user }.toSet()))
             }
         },
         aliases = l.aliases.filterKeys { !it.startsWith("$user/$pkg/") },
