@@ -423,12 +423,8 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
 @Composable
 internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val landing = state.folderLanding ?: return
-    val progress = remember(landing) { Animatable(0f) }
     val density = LocalDensity.current
     val icon = with(density) { state.iconSize.toPx() }
-    LaunchedEffect(landing, landing.validated) {
-        if (landing.validated) progress.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
-    }
     DisposableEffect(landing) {
         onDispose { if (state.folderLanding === landing) state.folderLanding = null }
     }
@@ -450,37 +446,48 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val destinationVisible = if (panel) viewport?.overlaps(destination) == true else visible
     val destinationAlpha = if (destinationVisible) memberVisual?.alpha ?: 1f else 0f
     val target by rememberUpdatedState(if (landing.validated) destination.center else null)
-    var motion by remember(landing) { mutableStateOf(ReleaseMotion(landing.origin, boundedReleaseVelocity(landing.velocity, icon * 50))) }
+    val velocity = remember(landing) { boundedReleaseVelocity(landing.velocity, icon * 18f) }
+    val captureSeconds = remember(landing) { releaseCaptureSeconds(velocity.getDistance(), icon) }
+    var motion by remember(landing) { mutableStateOf(ReleaseMotion(landing.origin, velocity, captureSeconds)) }
+    var appearanceAge by remember(landing) { mutableFloatStateOf(0f) }
+    val progress = FastOutSlowInEasing.transform(releaseAppearanceFraction(appearanceAge, captureSeconds))
+    val rootSize = state.rootCoords?.size
+    val edge = startSize / 2f
+    val limits by rememberUpdatedState(rootSize?.let {
+        Rect(edge, edge, maxOf(edge, it.width - edge), maxOf(edge, it.height - edge))
+    })
     LaunchedEffect(landing) {
         var previous = withFrameNanos { now ->
             // A real frame can be stamped just before input dispatch; test clocks use a different epoch.
             val elapsed = (now - landing.releasedNanos) / 1_000_000_000f
-            motion = motion.step(target, if (elapsed < -1f) 1f / 60f else elapsed.coerceIn(0f, .064f))
+            motion = motion.step(target, if (elapsed < -1f) 1f / 60f else elapsed.coerceIn(0f, .064f), limits)
             now
         }
         while (true) {
             val now = withFrameNanos { it }
-            motion = motion.step(target, ((now - previous) / 1_000_000_000f).coerceAtMost(.064f))
+            val dt = ((now - previous) / 1_000_000_000f).coerceIn(0f, .064f)
+            motion = motion.step(target, dt, limits)
+            if (landing.validated) appearanceAge += dt
             previous = now
-            if (landing.validated && progress.value >= 1f &&
+            if (landing.validated && appearanceAge >= captureSeconds + .32f &&
                 (motion.position - (target ?: motion.position)).getDistance() < .5f && motion.velocity.getDistance() < 5f) {
                 if (state.folderLanding === landing) state.folderLanding = null
                 break
             }
         }
     }
-    val frameSize = start.width + (destination.width - start.width) * progress.value
+    val frameSize = start.width + (destination.width - start.width) * progress
     val frame = Rect(motion.position - Offset(frameSize / 2, frameSize / 2), Size(frameSize, frameSize))
     AppIcon(landing.icon, state.iconSize, Modifier.testTag("folder-landing")
         .offset { IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt()) }
         .graphicsLayer {
             scaleX = frame.width / icon
             scaleY = scaleX
-            alpha = 1f + (destinationAlpha - 1f) * ((progress.value - .65f) / .35f).coerceIn(0f, 1f)
+            alpha = 1f + (destinationAlpha - 1f) * ((progress - .65f) / .35f).coerceIn(0f, 1f)
         }.drawWithContent {
             if (viewport == null || frame.width <= 0f || frame.height <= 0f) drawContent()
             else {
-                val clip = folderLandingClip(frame, viewport, progress.value)
+                val clip = folderLandingClip(frame, viewport, progress)
                 clipRect((clip.left - frame.left) * size.width / frame.width,
                     (clip.top - frame.top) * size.height / frame.height,
                     (clip.right - frame.left) * size.width / frame.width,

@@ -79,9 +79,7 @@ fun Modifier.itemGestures(
                         cb.onLongPress(lc.boundsInRoot())
                         var dragging = false
                         var released = false
-                        val tracker = VelocityTracker()
-                        var lastMotion = 0L
-                        var lastPosition = Offset.Unspecified
+                        val tracker = ReleaseVelocity()
                         try {
                             while (true) {
                                 val ev = awaitPointerEvent()
@@ -91,9 +89,8 @@ fun Modifier.itemGestures(
                                 c.consume()
                                 val now = coords ?: lc
                                 val position = now.localToRoot(c.position)
-                                if (position != lastPosition) lastMotion = c.uptimeMillis
-                                lastPosition = position
-                                tracker.addPosition(c.uptimeMillis, position)
+                                for (sample in c.historical) tracker.add(sample.uptimeMillis, now.localToRoot(sample.position))
+                                tracker.add(c.uptimeMillis, position)
                                 if (!c.pressed) {
                                     if (dragging) cb.onDrag(position)
                                     released = c.changedToUpIgnoreConsumed() && !wasConsumed
@@ -108,9 +105,7 @@ fun Modifier.itemGestures(
                             if (dragging) {
                                 dragging = false
                                 if (released) {
-                                    val velocity = tracker.calculateVelocity()
-                                    cb.onDragEnd(if (currentEvent.changes.first { it.id == down.id }.uptimeMillis - lastMotion > 80) Offset.Zero
-                                        else Offset(velocity.x, velocity.y))
+                                    cb.onDragEnd(tracker.velocity())
                                 } else cb.onDragCancel()
                             }
                         } finally {
