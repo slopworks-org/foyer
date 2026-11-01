@@ -20,6 +20,17 @@ class FolderEntriesRestartTest {
         assertTrue(condition())
     }
 
+    /** Opening AtomicFile while a writer owns .new can discard that pending write. */
+    private fun awaitPersisted(activity: MainActivity, expected: HomeLayout) {
+        val file = File(activity.filesDir, "home.json")
+        waitFor {
+            !File(file.path + ".new").exists() && !File(file.path + ".bak").exists() && runCatching {
+                json.decodeFromString<HomeLayout>(file.readText()) == expected
+            }.getOrDefault(false)
+        }
+        assertEquals(expected, LayoutStore(activity, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)).layout.value)
+    }
+
     @Test fun stage() {
         org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("restartPhase") == "stage")
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -38,7 +49,7 @@ class FolderEntriesRestartTest {
             val old = """{"seeded":true,"nextId":2,"items":[{"id":1,"x":1,"y":1,"w":2,"h":2,"content":{"type":"folder","large":true,"apps":[$key,$key],"slots":[$key,null,null,null,null,null,null,null,$key]}}]}"""
             val migrated = Edits.normalizeFolders(json.decodeFromString<HomeLayout>(old))
             graph.layout.edit { migrated }
-            waitFor { LayoutStore(activity, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)).layout.value == migrated }
+            awaitPersisted(activity, migrated)
             File(directory, "restart-expected.json").writeText(json.encodeToString(HomeLayout.serializer(), migrated))
         }
     }
@@ -59,7 +70,7 @@ class FolderEntriesRestartTest {
                 File(directory, "restart-verified.txt").writeText("Process restart retained migrated duplicate IDs and sparse slots 0 and 8.\n")
             } finally {
                 activity.graph.layout.edit { original }
-                waitFor { LayoutStore(activity, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)).layout.value == original }
+                awaitPersisted(activity, original)
                 File(directory, "restart-original.json").delete()
             }
         }
