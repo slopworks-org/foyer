@@ -38,6 +38,8 @@ import androidx.compose.ui.layout.LocalPinnableContainer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
@@ -172,14 +174,17 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                         val density = LocalDensity.current
                         SideEffect { state.folderInsetPx = with(density) { 16.dp.toPx() } }
                         val rowHeight = maxHeight / 3
-                        LazyVerticalGrid(columns = GridCells.Fixed(3), userScrollEnabled = false) {
-                            items(9) { slot ->
-                                val key = folder.normalized().slots[slot]
-                                Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    if (key != null) AppIcon(state.appFor(AppContent(key))?.icon, iconSize * .65f,
-                                        (if (interactive) memberModifier(state, item.id, key) else Modifier).graphicsLayer {
-                                            alpha = if (state.folderLanding?.let { it.folderId == item.id && it.key == key } == true) 0f else 1f
-                                        })
+                        // Saved slots use absolute left-to-right coordinates in every locale.
+                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                            LazyVerticalGrid(columns = GridCells.Fixed(3), userScrollEnabled = false) {
+                                items(9) { slot ->
+                                    val key = folder.normalized().slots[slot]
+                                    Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                        if (key != null) AppIcon(state.appFor(AppContent(key))?.icon, iconSize * .65f,
+                                            (if (interactive) memberModifier(state, item.id, key) else Modifier).graphicsLayer {
+                                                alpha = if (state.folderLanding?.let { it.folderId == item.id && it.key == key } == true) 0f else 1f
+                                            })
+                                    }
                                 }
                             }
                         }

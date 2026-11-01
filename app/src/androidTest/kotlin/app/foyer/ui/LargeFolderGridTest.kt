@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsActions
@@ -21,6 +24,36 @@ import java.io.File
 
 class LargeFolderGridTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+
+    @Test fun rtlKeepsAbsoluteSparseSlots() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        lateinit var state: LauncherState
+        rule.waitUntil(10000) { graph.apps.apps.value.size >= 2 }
+        val apps = graph.apps.apps.value.take(2).map { it.key }
+        try {
+            graph.layout.edit { Edits.add(HomeLayout(seeded = true),
+                FolderContent(apps, true, slots = listOf(apps[0], null, null, null, null, null, null, null, apps[1])), 1, 1) }
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                state = remember { LauncherState(graph, scope, rule.activity) }
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { FoyerRoot(state) }
+            }
+            rule.waitForIdle()
+            rule.runOnIdle {
+                val surface = state.folderSurfaceBounds.getValue(1)
+                val first = state.memberBounds.getValue(1L to apps[0]).center
+                val last = state.memberBounds.getValue(1L to apps[1]).center
+                assertTrue(first.x < surface.center.x)
+                assertTrue(last.x > surface.center.x)
+                assertEquals(0, largeFolderSlot(first, surface, state.folderInsetPx))
+                assertEquals(8, largeFolderSlot(last, surface, state.folderInsetPx))
+                val emptyTopRight = Offset(last.x, first.y)
+                val session = DragSession(DragSource.New(AppContent(apps[1])), null, Offset.Zero, emptyTopRight)
+                assertEquals(DropTarget.Folder(1, 2), state.targetFor(session))
+            }
+        } finally { rule.runOnIdle { graph.layout.edit { saved } } }
+    }
 
     @Test fun squareSlotsAndFolderActionsAtCapacity() {
         val graph = rule.activity.graph
