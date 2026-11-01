@@ -161,7 +161,7 @@ class FolderSingletonFilmTest {
                 SystemClock.sleep(300); approach(point { state.appIconBounds.getValue(3).center })
                 waitFor("merge armed") { state.mergeReady == 3L }
                 main { assertEquals(1f, state.drag!!.visualAlpha); assertEquals(listOf(true), haptics.map { it.second }) }
-                // Leaving an armed candidate emits exactly one exit; dwelling again emits one arm.
+                // Leaving an armed candidate emits exactly one exit; entering again emits one arm.
                 approach(feed())
                 main { assertEquals(listOf(true, false), haptics.map { it.second }) }
                 approach(point { state.appIconBounds.getValue(3).center })
@@ -186,12 +186,12 @@ class FolderSingletonFilmTest {
                 }
                 moveAnchor(point { state.appIconBounds.getValue(3).center }); SystemClock.sleep(40)
                 moveAnchor(point { state.gridCoords!!.localToRoot(Offset(state.cellW * 4.5f, state.cellH * 2.5f)) }); SystemClock.sleep(400)
-                main { assertTrue("early exit is silent", haptics.isEmpty()) }
+                main { assertEquals(listOf(true, false), haptics.map { it.second }); haptics.clear() }
                 approach(point { state.appIconBounds.getValue(3).center })
                 waitFor("first ready") { state.mergeReady == 3L }
                 moveAnchor(point { state.appIconBounds.getValue(4).center })
                 SystemClock.sleep(50)
-                main { assertEquals(listOf(true, false), haptics.map { it.second }); assertNull(state.mergeReady) }
+                main { assertEquals(listOf(true, false, true), haptics.map { it.second }); assertEquals(4L, state.mergeReady) }
                 waitFor("switched ready") { state.mergeReady == 4L }
                 main {
                     assertEquals(listOf(true, false, true), haptics.map { it.second })

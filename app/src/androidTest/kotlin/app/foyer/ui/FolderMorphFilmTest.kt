@@ -65,6 +65,11 @@ class FolderMorphFilmTest {
                         delay(validationDelay)
                         if (reject) keys.toSet() else activity.graph.apps.missingFolderApps(keys)
                     } }
+                    SideEffect {
+                        state.mergeFeedback = { armed ->
+                            trace.append("${SystemClock.uptimeMillis()},$label,haptic-$armed,${pointer.x},${pointer.y},${state.mergePreviews.lastOrNull()?.progress?.value},${state.mergeReady},${state.folderLanding?.validated},${state.folderLanding?.returning}\n")
+                        }
+                    }
                     var frame by remember { mutableLongStateOf(0) }
                     LaunchedEffect(Unit) {
                         while (true) withFrameNanos {
@@ -132,15 +137,42 @@ class FolderMorphFilmTest {
                 SystemClock.sleep(650)
             }
             try {
+                if (InstrumentationRegistry.getArguments().getString("panelOnly") != "true") {
                 reset("01 different apps")
                 begin(); approach(target()); waitFor("armed") { state.mergeReady == 1L }; SystemClock.sleep(350); release()
                 main { assertTrue(activity.graph.layout.layout.value.items.single().content is FolderContent); assertNull(state.openFolder) }
                 reset("02 same app", same = true)
                 begin(); approach(target()); waitFor("armed") { state.mergeReady == 1L }; SystemClock.sleep(200); release()
                 main { assertEquals(2, (activity.graph.layout.layout.value.items.single().content as FolderContent).entries.map { it.id }.distinct().size) }
-                reset("03 fast center prearm cancel")
-                begin(); approach(target(), 3); release()
-                main { assertEquals(2, activity.graph.layout.layout.value.items.size) }
+                reset("03 fast center immediate merge")
+                begin(); approach(target(), 1)
+                main { assertEquals(1L, state.mergeReady); assertTrue(state.mergePreviews.last().progress.value < 1f) }
+                release()
+                main { assertTrue(activity.graph.layout.layout.value.items.single().content is FolderContent) }
+                reset("03b pointer up first enters center")
+                begin()
+                var up = Offset.Zero
+                main { up = state.appIconBounds.getValue(1).center - state.drag!!.anchorOffset }
+                send(MotionEvent.ACTION_UP, up)
+                waitFor("up-only merge") { state.folderLanding == null && state.drag == null }
+                main { assertTrue(activity.graph.layout.layout.value.items.single().content is FolderContent) }
+                reset("03c fast pass exits without commit")
+                begin(); approach(target(), 1)
+                approach(target() + Offset(0f, 220f), 1)
+                main { assertEquals(2, activity.graph.layout.layout.value.items.size); assertNull(state.mergeReady) }
+                release(cancel = true)
+                reset("03d stale target during validation")
+                main { validationDelay = 200 }
+                begin(); approach(target(), 1)
+                var staleUp = Offset.Zero
+                main { staleUp = state.drag!!.pointer }
+                send(MotionEvent.ACTION_UP, staleUp)
+                main {
+                    assertEquals(2, activity.graph.layout.layout.value.items.size)
+                    activity.graph.layout.edit { Edits.remove(it, 1) }
+                }
+                waitFor("stale target rejected") { state.folderLanding == null && state.drag == null }
+                main { assertTrue(activity.graph.layout.layout.value.items.single().content is AppContent) }
                 reset("04 armed exit reversal")
                 begin(); approach(target()); waitFor("armed") { state.mergeReady == 1L }; SystemClock.sleep(200)
                 approach(target() + Offset(0f, 220f)); SystemClock.sleep(350); release(cancel = true)
@@ -199,6 +231,26 @@ class FolderMorphFilmTest {
                 send(MotionEvent.ACTION_MOVE, member + Offset(30f, 30f)); SystemClock.sleep(50)
                 approach(target()); waitFor("member armed") { state.mergeReady == 1L }; SystemClock.sleep(200); release()
                 main { assertEquals(2, state.graph.layout.layout.value.items.size); assertEquals(2, (state.graph.layout.layout.value.items.first { it.id == 1L }.content as FolderContent).entries.size); assertNull(state.openFolder) }
+                }
+                main {
+                    label = "13 panel press no indication"
+                    state.graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(apps[0], apps[1]), name = "Tools"), 2, 3) }
+                }
+                SystemClock.sleep(600); main { state.openFolder = 1 }; SystemClock.sleep(600)
+                var member = Offset.Zero
+                main { member = state.panelMemberBounds.values.first().center }
+                fun shot(name: String) {
+                    instrumentation.uiAutomation.takeScreenshot().also { bitmap ->
+                        File(activity.getExternalFilesDir(null), "immediate-$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
+                    }
+                }
+                shot("panel-before")
+                send(MotionEvent.ACTION_DOWN, member); SystemClock.sleep(180)
+                send(MotionEvent.ACTION_CANCEL, member); SystemClock.sleep(400); shot("panel-cancel")
+                main { assertNull(state.menu); assertEquals(1L, state.openFolder) }
+                send(MotionEvent.ACTION_DOWN, member); SystemClock.sleep(180)
+                send(MotionEvent.ACTION_UP, member)
+                main { assertNull(state.menu); assertNull(state.openFolder) }
                 SystemClock.sleep(800)
             } finally {
                 main {

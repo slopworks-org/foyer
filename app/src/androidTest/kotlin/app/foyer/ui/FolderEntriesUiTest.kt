@@ -106,16 +106,18 @@ class FolderEntriesUiTest {
                 kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo(state.cellH.toInt()) }
             }
             rule.mainClock.advanceTimeBy(64)
-            android.os.SystemClock.sleep(340)
             rule.runOnIdle {
                 state.refreshDragTargets()
                 assertEquals(1L, state.mergeCandidate)
+                assertEquals(1L, state.mergeReady)
             }
-            rule.mainClock.advanceTimeBy(260)
+            rule.mainClock.advanceTimeBy(16)
             rule.runOnIdle {
                 state.refreshDragTargets()
                 assertEquals(1L, state.mergeReady)
                 kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo((state.cellH * 2).toInt()) }
+                // Two refreshes in the release frame must not reuse pre-scroll measurements.
+                repeat(2) { state.refreshDragTargets(); assertNull(state.mergeReady) }
             }
             rule.mainClock.advanceTimeBy(64)
             rule.runOnIdle {
@@ -228,7 +230,6 @@ class FolderEntriesUiTest {
                 state.moveDrag(anchor)
             }
             rule.mainClock.advanceTimeBy(700)
-            android.os.SystemClock.sleep(340)
             rule.runOnUiThread { state.refreshDragTargets() }
             rule.waitUntil(5000) {
                 rule.mainClock.advanceTimeBy(16)

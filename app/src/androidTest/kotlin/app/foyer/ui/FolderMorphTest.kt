@@ -18,7 +18,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 
-/** Real uptime recognition plus injected authoritative validation; all fixtures go through Edits. */
+/** Immediate spatial intent plus injected authoritative validation; all fixtures go through Edits. */
 class FolderMorphTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
@@ -185,7 +185,7 @@ class FolderMorphTest {
         }
     }
 
-    @Test fun prearmReleaseReturnsAndValidationTimeoutNeverCommitsLate() {
+    @Test fun immediateReleaseMergesAndValidationTimeoutNeverCommitsLate() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
         lateinit var state: LauncherState
@@ -215,12 +215,14 @@ class FolderMorphTest {
             }
             begin()
             rule.runOnUiThread {
-                assertNull(state.mergeReady)
+                assertEquals(1L, state.mergeReady)
                 state.endDrag()
                 assertNotNull(state.folderLanding)
             }
             rule.waitUntil(5000) { state.drag == null && state.folderLanding == null }
-            assertEquals(initial, graph.layout.layout.value)
+            assertTrue(graph.layout.layout.value.items.single().content is FolderContent)
+            rule.runOnUiThread { graph.layout.edit { initial } }
+            rule.waitForIdle()
             validationDelay = 1800
             begin()
             rule.waitUntil(5000) {

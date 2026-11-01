@@ -22,7 +22,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 
-/** Uses native pointer events and the real frame clock, including the merge-intent dwell. */
+/** Uses native pointer events and the real frame clock, including immediate merge intent. */
 class FolderEntriesRealTest {
     @Test fun creationAndDuplicateOccurrenceFilm() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -102,8 +102,8 @@ class FolderEntriesRealTest {
                 var start = Offset.Zero; var destination = Offset.Zero
                 main { start = state.appIconBounds.getValue(2).center; destination = state.appIconBounds.getValue(1).center }
                 begin(start); approach(destination)
-                main { assertEquals(1L, state.mergeCandidate); assertNull(state.mergeReady) }
-                shot("01-hold-to-group")
+                main { assertEquals(1L, state.mergeCandidate); assertEquals(1L, state.mergeReady) }
+                shot("01-immediate-group")
                 waitFor("merge armed") { state.mergeReady == 1L }
                 SystemClock.sleep(120) // let the armed feedback reach the displayed frame
                 shot("02-release-to-group"); release()
@@ -127,7 +127,7 @@ class FolderEntriesRealTest {
                     assertTrue(activity.graph.layout.layout.value.items.any { it.content == AppContent(second.app) })
                 }
                 shot("05-second-copy-moved-out")
-                report.append("Native 240ms approach + 450ms deliberate center dwell creates unnamed same-app folder at target. Second occurrence independently dragged out.\n")
+                report.append("Native 240ms approach + immediate center readiness creates unnamed same-app folder at target. Second occurrence independently dragged out.\n")
                 // A real search-result drag copies the app into a new folder with a desktop app.
                 reset(Edits.add(HomeLayout(seeded = true), AppContent(apps[0]), 2, 2))
                 var label = ""
@@ -188,16 +188,16 @@ class FolderEntriesRealTest {
                 release(cancel = true)
                 main { assertEquals(placed, activity.graph.layout.layout.value) }
                 shot("07-cancel-retains-both")
-                // Center release before arming cancels; swaps require an edge intent.
+                // A center release groups immediately; swaps require an edge intent.
                 reset(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(apps[0]), 2, 2), AppContent(apps[1]), 0, 0))
                 main { start = state.appIconBounds.getValue(2).center; destination = state.appIconBounds.getValue(1).center }
                 begin(start); approach(destination); release()
                 main {
-                    assertTrue(activity.graph.layout.layout.value.items.all { it.content is AppContent })
-                    assertEquals(0, activity.graph.layout.layout.value.items.first { it.id == 2L }.x)
+                    assertTrue(activity.graph.layout.layout.value.items.single().content is FolderContent)
+                    assertEquals(2, activity.graph.layout.layout.value.items.single().x)
                 }
-                shot("08-prearm-center-drop-cancels")
-                report.append("Full large folder rejects tenth duplicate without consuming source. ACTION_CANCEL preserves both apps after arming. Pre-arm center release retains both desktop apps.\n")
+                shot("08-immediate-center-drop-groups")
+                report.append("Full large folder rejects tenth duplicate without consuming source. ACTION_CANCEL preserves both apps after arming. Immediate center release groups both desktop apps.\n")
                 main { rtl.value = true }
                 reset(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(apps[0]), 0, 2), AppContent(apps[0]), 4, 0))
                 main { start = state.appIconBounds.getValue(2).center; destination = state.appIconBounds.getValue(1).center }
