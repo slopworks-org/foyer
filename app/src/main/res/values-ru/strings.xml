@@ -38,7 +38,6 @@
     <string name="wallpaper_chooser">Обои</string>
     <string name="no_app_to_open">Нечем открыть</string>
     <string name="folder_default">Папка</string>
-    <string name="folder_create">Создать папку</string>
     <string name="folder_title">Изменить название</string>
     <string name="folder_capacity">В большой папке может быть не более девяти приложений.</string>
     <string name="folder_collision">Недостаточно места. Для большой папки нужна свободная область 2 × 2.</string>
@@ -50,4 +49,7 @@
     <string name="folder_later">Переместить позже</string>
     <string name="folder_move_to">Переместить в %1$s</string>
     <string name="folder_actions">Действия с папкой</string>
+    <string name="folder_combine_with">Объединить с %1$s</string>
+    <string name="folder_merge_hint">Удерживайте для объединения</string>
+    <string name="folder_merge_ready">Отпустите для объединения</string>
 </resources>

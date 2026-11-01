@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -41,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -476,12 +479,29 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
             onDragCancel = state::cancelDrag,
         )
     }
+    DisposableEffect(item.id) { onDispose { state.appIconBounds.remove(item.id) } }
+    val merging = state.mergeCandidate == item.id && state.drag != null
+    val ready = state.mergeReady == item.id
     val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
     Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty() }, contentAlignment = Alignment.Center) {
-        Box(Modifier.scale(scale)) {
+        if (merging) Box(Modifier.size(iconSize + 12.dp).border(if (ready) 3.dp else 1.dp,
+            MaterialTheme.colorScheme.primary, CircleShape))
+        Box(Modifier.scale(scale).onGloballyPositioned {
+            if (content is AppContent && !item.dock) state.appIconBounds[item.id] = it.boundsInRoot()
+        }) {
             if (content is ShortcutContent) ShortcutIcon(state, shortcut, app, iconSize)
-            else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer { alpha = if (app == null) 0.35f else 1f })
+            else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer {
+                alpha = if (app == null) 0.35f else 1f
+                scaleX = if (ready) .72f else 1f
+                scaleY = scaleX
+            })
         }
+        if (merging) Text(stringResource(if (ready) R.string.folder_merge_ready else R.string.folder_merge_hint),
+            color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall,
+            maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.align(Alignment.BottomCenter).offset(y = 28.dp).requiredWidth(144.dp)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 

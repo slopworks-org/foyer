@@ -169,7 +169,7 @@ class FolderMotionTest {
                 rule.waitForIdle()
             }
             val start = when {
-                case == "member-transfer" -> rule.runOnIdle { state.panelMemberBounds[state.openFolder!! to key]!!.center }
+                case == "member-transfer" -> rule.runOnIdle { state.panelMemberBounds[state.openFolder!! to state.testEntryId(state.openFolder!!, key)]!!.center }
                 case.startsWith("search") -> {
                     val result = rule.onNode(hasText(label) and !hasSetTextAction()).performScrollTo()
                     var previous = result.fetchSemanticsNode().boundsInRoot
@@ -475,7 +475,7 @@ class FolderMotionTest {
                     val result = Edits.add(current, if (source == 0) AppContent(key)
                         else FolderContent(listOf(key), name = "Source"), 0, 0)
                     dragSource = if (source == 0) DragSource.Placed(result.items.last())
-                        else DragSource.Member(result.items.last().id, key)
+                        else DragSource.Member(result.items.last().id, key, (result.items.last().content as FolderContent).entries.single().id)
                     result
                 }
             }
@@ -664,7 +664,7 @@ class FolderMotionTest {
         evidence("scrolled-open")
         rule.runOnIdle {
             assertTrue("fixture must scroll beyond the first preview row", state.folderGridScroll > state.folderRowHeight)
-            assertNull("regression must exercise an uncomposed preview member", state.panelMemberBounds[folderId to apps.first()])
+            assertNull("regression must exercise an uncomposed preview member", state.panelMemberBounds[folderId to state.testEntryId(folderId, apps.first())])
         }
         rule.mainClock.autoAdvance = false
         rule.runOnUiThread { state.openFolder = null }
@@ -688,7 +688,7 @@ class FolderMotionTest {
         showIme()
         evidence("ime-open")
         val grid = rule.runOnIdle { state.folderGridBounds!! }
-        val first = rule.runOnIdle { state.panelMemberBounds[folderId to apps.first()]!!.center }
+        val first = rule.runOnIdle { state.panelMemberBounds[folderId to state.testEntryId(folderId, apps.first())]!!.center }
         rule.mainClock.autoAdvance = false
         rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput { down(first) }
         rule.mainClock.advanceTimeBy(600)
@@ -713,7 +713,7 @@ class FolderMotionTest {
             assertEquals(0, state.feedScroll.value)
         }
         evidence("ime-reordered")
-        val last = rule.runOnIdle { state.panelMemberBounds[folderId to apps.first()]!!.center }
+        val last = rule.runOnIdle { state.panelMemberBounds[folderId to state.testEntryId(folderId, apps.first())]!!.center }
         rule.mainClock.autoAdvance = false
         rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput { down(last) }
         rule.mainClock.advanceTimeBy(600)

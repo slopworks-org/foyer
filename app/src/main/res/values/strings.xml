@@ -40,7 +40,6 @@
     <string name="wallpaper_chooser">Wallpaper</string>
     <string name="no_app_to_open">No app can open this</string>
     <string name="folder_default">Folder</string>
-    <string name="folder_create">Create folder</string>
     <string name="folder_title">Edit name</string>
     <string name="folder_capacity">Large folders hold at most nine apps.</string>
     <string name="folder_collision">Not enough free space. Large folders need a free 2 × 2 area.</string>
@@ -52,4 +51,7 @@
     <string name="folder_later">Move later</string>
     <string name="folder_move_to">Move to %1$s</string>
     <string name="folder_actions">Folder actions</string>
+    <string name="folder_combine_with">Combine with %1$s</string>
+    <string name="folder_merge_hint">Hold to group</string>
+    <string name="folder_merge_ready">Release to group</string>
 </resources>

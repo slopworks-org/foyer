@@ -60,10 +60,10 @@ internal fun folderInsertionForMember(slot: Int, sourceIndex: Int): Int =
     slot + if (sourceIndex >= 0 && slot > sourceIndex) 1 else 0
 
 /** Preserve the dragged member's composition (and pointer ownership) as the invisible gap. */
-internal fun folderDragOrder(apps: List<AppKey>, member: AppKey?, index: Int, large: Boolean = false): List<AppKey?> {
+internal fun <T> folderDragOrder(apps: List<T>, member: T?, index: Int, large: Boolean = false): List<T?> {
     val old = apps.indexOf(member)
     val insertion = (if (old < 0 && !large && apps.size == 4 && index >= 4) 2 else index).coerceIn(0, apps.size)
-    return apps.toMutableList<AppKey?>().apply {
+    return apps.toMutableList<T?>().apply {
         if (old >= 0) removeAt(old)
         add((insertion - if (old in 0 until insertion) 1 else 0).coerceIn(0, size), member)
     }

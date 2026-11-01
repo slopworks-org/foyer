@@ -68,13 +68,14 @@ class MenuSpec(
 
 sealed interface DragSource {
     data class Placed(val item: HomeItem) : DragSource
-    data class Member(val folderId: Long, val key: app.foyer.data.AppKey) : DragSource
+    data class Member(val folderId: Long, val key: app.foyer.data.AppKey, val entryId: String) : DragSource
     data class New(val content: Content) : DragSource
 }
 
 internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.AppKey,
     val icon: Icon?, val origin: Offset, val scale: Float, val velocity: Offset = Offset.Zero,
     val releasedNanos: Long = System.nanoTime()) {
+    var entryId by mutableStateOf<String?>(null)
     var validated by mutableStateOf(false)
 }
 
@@ -101,6 +102,7 @@ class DragSession(
 }
 
 sealed interface DropTarget {
+    data class Merge(val target: HomeItem) : DropTarget
     data class Feed(val x: Int, val y: Int) : DropTarget
     data class Folder(val id: Long, val index: Int = Int.MAX_VALUE) : DropTarget
     data class Dock(val slot: Int) : DropTarget
@@ -156,12 +158,18 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var folderGridScroll = 0f
     internal var folderContentViewport by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
     internal var folderLanding by mutableStateOf<FolderLanding?>(null)
-    internal val folderMemberFrames = mutableMapOf<Pair<Long, app.foyer.data.AppKey>, () -> FolderMemberVisual?>()
-    val memberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
-    val panelMemberBounds = mutableStateMapOf<Pair<Long, app.foyer.data.AppKey>, androidx.compose.ui.geometry.Rect>()
+    internal val folderMemberFrames = mutableMapOf<Pair<Long, String>, () -> FolderMemberVisual?>()
+    val memberBounds = mutableStateMapOf<Pair<Long, String>, androidx.compose.ui.geometry.Rect>()
+    val panelMemberBounds = mutableStateMapOf<Pair<Long, String>, androidx.compose.ui.geometry.Rect>()
     var folderPanelBounds: androidx.compose.ui.geometry.Rect? = null
     private var hoverJob: kotlinx.coroutines.Job? = null
     private var hoverFolder: Long? = null
+    val appIconBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
+    var mergeCandidate by mutableStateOf<Long?>(null)
+        private set
+    var mergeReady by mutableStateOf<Long?>(null)
+        private set
+    private var mergeJob: kotlinx.coroutines.Job? = null
     var menu by mutableStateOf<MenuSpec?>(null)
     var selectedWidget by mutableStateOf<Long?>(null)
     var widgetPickerAt by mutableStateOf<Pair<Int, Int>?>(null)
@@ -355,6 +363,28 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         menu = MenuSpec(anchor, shortcuts, actionsList, onIcon = item.content !is WidgetContent)
     }
 
+    fun showMemberMenu(folderId: Long, entry: app.foyer.data.FolderEntry, anchor: androidx.compose.ui.geometry.Rect) {
+        val app = appFor(AppContent(entry.app))
+        menu = MenuSpec(anchor, actions = buildList {
+            if (app != null) add(infoAction(app))
+            add(MenuAction(R.string.action_remove, MenuIcons.Close) {
+                graph.layout.edit { current ->
+                    val folder = current.items.find { it.id == folderId }?.content as? FolderContent
+                    if (folder == null) current else Edits.folder(current, folderId, folder.withoutEntry(entry.id))
+                }
+            })
+            val item = layout.items.find { it.id == folderId }
+            if ((item?.content as? FolderContent)?.large == true) {
+                add(MenuAction(R.string.folder_shrink, MenuIcons.Edit) {
+                    graph.layout.edit { current ->
+                        val folder = current.items.find { it.id == folderId }?.content as? FolderContent
+                        if (folder == null) current else Edits.folder(current, folderId, folder.copy(large = false))
+                    }
+                })
+            }
+        }, onIcon = true)
+    }
+
     fun showSearchMenu(content: Content, anchor: androidx.compose.ui.geometry.Rect) {
         val app = appFor(content)
         val actionsList = buildList {
@@ -392,10 +422,6 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         menu = MenuSpec(
             anchor,
             actions = listOf(
-                MenuAction(R.string.folder_create, MenuIcons.Add) {
-                    graph.layout.edit { Edits.add(it, FolderContent(), cellX, cellY) }
-                    openFolder = layout.items.lastOrNull { it.content is FolderContent && it.x == cellX && it.y == cellY }?.id
-                },
                 MenuAction(R.string.action_widgets, MenuIcons.Widgets) { widgetPickerAt = cellX to cellY },
                 MenuAction(R.string.action_wallpaper_style, MenuIcons.Wallpaper) { actions.wallpaper() },
                 MenuAction(R.string.action_settings, MenuIcons.Settings) { settingsOpen = true },
@@ -412,6 +438,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun startDrag(session: DragSession) {
         menu = null
         folderLanding = null
+        resetMerge()
         drag = session
         if (searchOpen) closeSearch()
     }
@@ -419,6 +446,15 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun moveDrag(pointer: Offset) {
         drag?.pointer = pointer
         val session = drag ?: return
+        val candidate = mergeAppAt(session)?.id
+        if (mergeCandidate != candidate) {
+            resetMerge()
+            mergeCandidate = candidate
+            if (candidate != null) mergeJob = scope.launch {
+                kotlinx.coroutines.delay(450)
+                if (drag === session && mergeAppAt(session)?.id == candidate) mergeReady = candidate
+            }
+        }
         val target = targetFor(session) as? DropTarget.Folder
         val id = target?.id
         if (hoverFolder != id) {
@@ -431,7 +467,28 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
     }
 
+    private fun resetMerge() {
+        mergeJob?.cancel()
+        mergeCandidate = null
+        mergeReady = null
+    }
+
+    /** Center dwell expresses merge intent; the surrounding cell continues to allow swaps. */
+    private fun mergeAppAt(s: DragSession): HomeItem? {
+        if (s.content !is AppContent) return null
+        val root = rootCoords ?: return null
+        val viewport = androidx.compose.ui.geometry.Rect(0f, 0f, root.size.width.toFloat(), root.size.height.toFloat())
+        val dock = dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.let { androidx.compose.ui.geometry.Rect(0f, it.top, viewport.right, viewport.bottom) }
+        if (dropLayerAt(s.anchor, viewport, folderPanelBounds.takeIf { openFolder != null }, dock) != DropLayer.Feed) return null
+        return layout.feed.firstOrNull { item ->
+            item.id != s.placedId && item.content is AppContent && appIconBounds[item.id]?.let {
+                androidx.compose.ui.geometry.Rect(it.center - Offset(it.width * .35f, it.height * .35f), androidx.compose.ui.geometry.Size(it.width * .7f, it.height * .7f)).contains(s.anchor)
+            } == true
+        }
+    }
+
     fun cancelDrag() {
+        resetMerge()
         folderLanding = null
         hoverJob?.cancel()
         hoverFolder = null
@@ -442,6 +499,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun endDrag(velocity: Offset = Offset.Zero) {
         val s = drag ?: return
         val target = targetFor(s)
+        resetMerge()
         hoverJob?.cancel()
         hoverFolder = null
         val key = (s.content as? AppContent)?.app
@@ -450,19 +508,23 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val flight = if (target is DropTarget.Folder && key != null)
             FolderLanding(target.id, key, s.icon, release, releaseScale, velocity).also { folderLanding = it } else null
         scope.launch {
-            val missing = if (key == null) emptySet() else graph.apps.missingFolderApps(listOf(key))
+            val keys = listOfNotNull(key, ((target as? DropTarget.Merge)?.target?.content as? AppContent)?.app)
+            val missing = graph.apps.missingFolderApps(keys)
             if (drag !== s) return@launch
             graph.layout.edit { current ->
-                val available = key == null || key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages
+                val available = keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages }
                 val plan = if (available && target != null) plan(s, target, current) else null
                 if (plan != null) {
                     if (target is DropTarget.Folder && key != null) {
+                        val before = (current.items.find { it.id == target.id }?.content as? FolderContent)?.entries.orEmpty().map { it.id }.toSet()
+                        flight?.entryId = (s.source as? DragSource.Member)?.takeIf { it.folderId == target.id }?.entryId
+                            ?: (plan.first.items.find { it.id == target.id }?.content as? FolderContent)?.entries?.firstOrNull { it.id !in before }?.id
                         flight?.validated = true
                     } else dropOrigins[plan.second] = s.anchor
                     plan.first
                 } else {
                     if (folderLanding === flight) folderLanding = null
-                    if (target is DropTarget.Folder) folderFeedback = R.string.folder_drop_failed
+                    if (target is DropTarget.Folder || target is DropTarget.Merge) folderFeedback = R.string.folder_drop_failed
                     else if (s.content is FolderContent) folderFeedback = R.string.folder_move_failed
                     s.placedId?.let { dropOrigins[it] = s.anchor }
                     current
@@ -494,7 +556,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 val folder = layout.items.find { it.id == id }?.content as? FolderContent ?: return null
                 val index = folderHitGridBounds?.let { folderInsertionIndex(p, it, folderRowHeight, folder.apps.size, folderGridScroll, folder.large) } ?: folder.apps.size
                 val source = (s.source as? DragSource.Member)?.takeIf { it.folderId == id }
-                return DropTarget.Folder(id, folderInsertionForMember(index, folder.apps.indexOf(source?.key)))
+                return DropTarget.Folder(id, folderInsertionForMember(index, folder.entries.indexOfFirst { it.id == source?.entryId }))
             }
             DropLayer.Dock -> {
                 if (s.isWidget || s.content is FolderContent) return null
@@ -507,6 +569,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             DropLayer.Feed -> Unit
         }
         if (s.content is AppContent) {
+            mergeAppAt(s)?.takeIf { it.id == mergeReady }?.let { return DropTarget.Merge(it) }
             folderSurfaceBounds.entries.firstOrNull { (id, bounds) ->
                 (layout.items.find { it.id == id }?.content as? FolderContent)?.large == true && bounds.contains(p)
             }?.let { (id, bounds) ->
@@ -536,23 +599,28 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     /** The layout after dropping, plus the id of the item that landed; null if it cannot go there. */
     fun plan(s: DragSession, t: DropTarget, l: HomeLayout = layout): Pair<HomeLayout, Long>? {
         val placed = (s.source as? DragSource.Placed)?.item?.let { p -> l.items.firstOrNull { it.id == p.id } }
-        if (s.source is DragSource.Placed && placed == null) return null
+        if (s.source is DragSource.Placed && placed != s.source.item) return null
         val member = s.source as? DragSource.Member
         val key = (s.content as? AppContent)?.app
+        if (t is DropTarget.Merge) {
+            if (key == null) return null
+            val result = Edits.mergeApps(l, t.target, key, placed, member?.folderId, member?.entryId)
+            return if (result === l) null else result to t.target.id
+        }
         if (t is DropTarget.Folder || member != null) {
             if (key == null) return null
             val result = Edits.transferApp(l, key, placed?.id, member?.folderId,
                 (t as? DropTarget.Folder)?.id, (t as? DropTarget.Folder)?.index ?: Int.MAX_VALUE,
                 (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: 0,
-                (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock)
+                (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock, sourceEntry = member?.entryId)
             val unchangedMember = member != null && t is DropTarget.Folder && member.folderId == t.id &&
                 (l.items.find { it.id == t.id }?.content as? FolderContent)?.let { folder ->
-                    !folder.large && key in folder.apps && folderDragOrder(folder.apps, key, t.index) == folder.apps
+                    !folder.large && folder.entries.any { it.id == member.entryId } && folderDragOrder(folder.entries, folder.entries.find { it.id == member.entryId }, t.index) == folder.entries
                 } == true
             return if (result === l && !unchangedMember) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
         }
         return when (t) {
-            is DropTarget.Folder -> null
+            is DropTarget.Folder, is DropTarget.Merge -> null
             is DropTarget.Feed -> {
                 if (l.isFree(t.x, t.y, s.w, s.h, ignore = placed?.id)) {
                     if (placed != null) Edits.move(l, placed.id, t.x, t.y, dock = false) to placed.id
@@ -578,14 +646,28 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     fun accessibleTransfer(key: app.foyer.data.AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,
-                           targetFolder: Long? = null, index: Int = Int.MAX_VALUE, toDock: Boolean = false) {
+                           targetFolder: Long? = null, index: Int = Int.MAX_VALUE, toDock: Boolean = false, sourceEntry: String? = null) {
         scope.launch {
             val missing = graph.apps.missingFolderApps(listOf(key))
             graph.layout.edit { current ->
                 val (x, y) = if (toDock) ((0 until HomeLayout.DOCK_SLOTS).firstOrNull { current.dockSlotFree(it) } ?: -1) to 0
                     else current.firstFree(1, 1)
                 val result = Edits.transferApp(current, key, sourceItem, sourceFolder, targetFolder, index, x, y, toDock,
-                    key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages)
+                    key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages, sourceEntry)
+                if (result === current) folderFeedback = R.string.folder_drop_failed
+                result
+            }
+        }
+    }
+
+    fun accessibleMerge(target: HomeItem, key: app.foyer.data.AppKey, sourceItem: Long?, sourceFolder: Long?, sourceEntry: String?) {
+        val source = sourceItem?.let { id -> layout.items.find { it.id == id } } ?: if (sourceItem != null) return else null
+        scope.launch {
+            val keys = listOf(key, (target.content as AppContent).app)
+            val missing = graph.apps.missingFolderApps(keys)
+            graph.layout.edit { current ->
+                val result = Edits.mergeApps(current, target, key, source, sourceFolder, sourceEntry,
+                    keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages })
                 if (result === current) folderFeedback = R.string.folder_drop_failed
                 result
             }

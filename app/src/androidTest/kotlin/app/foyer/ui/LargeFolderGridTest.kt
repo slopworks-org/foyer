@@ -42,8 +42,8 @@ class LargeFolderGridTest {
             rule.waitForIdle()
             rule.runOnIdle {
                 val surface = state.folderSurfaceBounds.getValue(1)
-                val first = state.memberBounds.getValue(1L to apps[0]).center
-                val last = state.memberBounds.getValue(1L to apps[1]).center
+                val first = state.memberBounds.getValue(1L to state.testEntryId(1L, apps[0])).center
+                val last = state.memberBounds.getValue(1L to state.testEntryId(1L, apps[1])).center
                 assertTrue(first.x < surface.center.x)
                 assertTrue(last.x > surface.center.x)
                 assertEquals(0, largeFolderSlot(first, surface, state.folderInsetPx))
@@ -97,7 +97,7 @@ class LargeFolderGridTest {
                 File(directory, "dimensions-$count.txt").writeText("surface=$surface; footprint=${footprint.w}x${footprint.h}; cells=${state.cellW}x${state.cellH}")
                 shot("$count-apps-square")
                 // Actual pointer long press on a member also discovers the full folder menu.
-                val member = state.memberBounds.getValue(1L to apps[count - 1])
+                val member = state.memberBounds.getValue(1L to state.testEntryId(1L, apps[count - 1]))
                 rule.onRoot().performTouchInput { longClick(member.center) }
                 rule.waitForIdle()
                 assertTrue(state.menu!!.actions.any { it.label == R.string.folder_shrink })
@@ -123,7 +123,7 @@ class LargeFolderGridTest {
                 }
             }
             rule.runOnIdle {
-                val member = DragSession(DragSource.Member(1, apps[8]), null, Offset.Zero, Offset.Zero)
+                val member = DragSession(DragSource.Member(1, apps[8], state.testEntryId(1, apps[8])), null, Offset.Zero, Offset.Zero)
                 assertNull(state.plan(member, DropTarget.Folder(1, 9)))
                 val external = DragSession(DragSource.New(AppContent(apps[9])), null, Offset.Zero, Offset.Zero)
                 assertNull(state.plan(external, DropTarget.Folder(1)))
@@ -151,7 +151,7 @@ class LargeFolderGridTest {
             }
             rule.waitForIdle()
             shot("nine-with-holes")
-            val source = state.memberBounds.getValue(1L to apps[2]).center
+            val source = state.memberBounds.getValue(1L to state.testEntryId(1L, apps[2])).center
             val surface = state.folderSurfaceBounds.getValue(1)
             val empty = Offset(surface.center.x, surface.top + state.folderInsetPx + (surface.height - 2 * state.folderInsetPx) / 6)
             fun touchDrag(from: Offset, to: Offset) {
@@ -168,13 +168,13 @@ class LargeFolderGridTest {
             assertEquals(apps[2], folder().slots[1])
             assertNull(folder().slots[2])
             shot("touch-move-into-hole")
-            touchDrag(state.memberBounds.getValue(1L to apps[4]).center, state.memberBounds.getValue(1L to apps[5]).center)
+            touchDrag(state.memberBounds.getValue(1L to state.testEntryId(1L, apps[4])).center, state.memberBounds.getValue(1L to state.testEntryId(1L, apps[5])).center)
             assertEquals(apps[5], folder().slots[4])
             assertEquals(apps[4], folder().slots[5])
             shot("touch-occupied-slot-swap")
             rule.runOnIdle { graph.layout.edit { Edits.add(it, FolderContent(listOf(apps[9])), 3, 4) } }
             rule.waitForIdle()
-            touchDrag(state.memberBounds.getValue(1L to apps[3]).center, state.folderBounds.getValue(2).center)
+            touchDrag(state.memberBounds.getValue(1L to state.testEntryId(1L, apps[3])).center, state.folderBounds.getValue(2).center)
             assertNull(folder().slots[3])
             assertEquals(listOf(apps[9], apps[3]), (graph.layout.layout.value.items.last().content as FolderContent).apps)
             shot("touch-large-to-small")
@@ -182,7 +182,7 @@ class LargeFolderGridTest {
             rule.waitForIdle()
             val destination = Offset(surface.left + state.folderInsetPx + (surface.width - 2 * state.folderInsetPx) / 6,
                 surface.top + state.folderInsetPx + (surface.height - 2 * state.folderInsetPx) * 5 / 6)
-            touchDrag(state.panelMemberBounds.getValue(2L to apps[3]).center, destination)
+            touchDrag(state.panelMemberBounds.getValue(2L to state.testEntryId(2L, apps[3])).center, destination)
             assertEquals(apps[3], folder().slots[6])
             assertEquals(listOf(apps[9]), (graph.layout.layout.value.items.last().content as FolderContent).apps)
             shot("touch-small-to-large")
@@ -216,7 +216,7 @@ class LargeFolderGridTest {
             shot("shrunk-row-major")
             rule.runOnIdle { state.menu = null; graph.layout.edit { Edits.folder(it, 1, folder().copy(large = true)) } }
             rule.waitForIdle()
-            val launchPoint = state.memberBounds.getValue(1L to apps[0]).center
+            val launchPoint = state.memberBounds.getValue(1L to state.testEntryId(1L, apps[0])).center
             rule.onRoot().performTouchInput { click(launchPoint) }
             rule.waitUntil(5000) { launched == apps[0] }
             Thread.sleep(600)
