@@ -48,14 +48,16 @@ Folder app drops mark the resulting cell with the desktop landing treatment: 4dp
 inset, 14% fill, 45% outline and a 1.5dp stroke. Surface-relative color keeps the
 frame legible in both themes. Drawing behind the cell preserves icon measurement,
 gesture ownership and lazy placement; the panel grid clips the frame while scrolling.
-Large slots are smaller than the lifted icon, so four right-angle target corners draw
-above the opaque drag icon while the cell fill stays below it. Each corner uses a 2dp
-surface-contrast stroke over a 4dp surface-colored backing, inset 2dp inside the exact
-cell. The broken perimeter distinguishes the target from rounded icon artwork in both themes.
+Large slots use the same continuous rounded frame primitive and tokens. Their fill
+stays below the opaque drag icon and their outline draws above it, without backing
+or a second outline. Their radius is one quarter of the launcher icon size, matching
+the smaller cell scale. The shared primitive caps rounding at 40% of the inset
+frame’s shorter side to retain straight edges instead of clamping into a capsule;
+the open panel retains its accepted half-icon radius below that cap. Cell bounds and sparse positions remain unchanged.
 The preview's order and occurrence ID come from the same transfer plan as release,
 including fifth-item reflow, duplicate apps, sparse large slots and swaps. Invalid
 plans have no landing frame. Release removes the frame immediately while retaining
 the pending order captured at release through validation; panel edge scrolling stops
 on release, and cancel restores the original order. Adding to an empty folder outlines
 the resulting standalone app cell at the folder's stored top-left position. Large-slot
-corner marks are clipped out of any overlapping foreground folder panel.
+frames are clipped out of any overlapping foreground folder panel.

@@ -209,19 +209,19 @@ class FolderDropTargetTest {
             rule.mainClock.advanceTimeBy(800)
             assertEquals(1L, preview().folderId)
             capture("large-behind-panel")
-            // Contrast over artwork unlike Calendar, centered and offset within the same slot.
+            // Both installed artwork styles, centered and offset within the same slot.
             val solidApp = graph.apps.apps.value.first { it.key != app.key }
             fixture(2, true)
-            for (offset in listOf(0f, .28f)) {
+            for (artwork in listOf(app, solidApp)) for (offset in listOf(0f, .28f)) {
                 rule.runOnIdle {
                     state.cancelDrag(); state.folderLanding?.let(state::finishLanding)
                     val cell = largeFolderCell(state.folderSurfaceBounds.getValue(1), 4, state.folderInsetPx)
-                    state.startDrag(DragSession(DragSource.New(AppContent(solidApp.key)), solidApp.icon,
+                    state.startDrag(DragSession(DragSource.New(AppContent(artwork.key)), artwork.icon,
                         Offset.Zero, cell.center + Offset(cell.width * offset, 0f)))
                 }
                 rule.mainClock.advanceTimeBy(800)
                 marker(preview()).assertExists()
-                capture("large-artwork-${if (offset == 0f) "center" else "offset"}")
+                capture("large-artwork-${artwork.key.pkg}-${if (offset == 0f) "center" else "offset"}")
             }
             fixture(2, true)
             rule.runOnIdle {

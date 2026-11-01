@@ -898,11 +898,13 @@ internal fun Modifier.landingFrame(
     this.drawBehind {
         val inset = inset.toPx()
         val frameSize = Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset * 2).coerceAtLeast(0f))
-        val corner = CornerRadius(radius.toPx())
+        // Keep straight edges on compact cells instead of letting round-rect clamping form a capsule.
+        val frameRadius = minOf(radius.toPx(), minOf(frameSize.width, frameSize.height) * .4f)
+        val corner = CornerRadius(frameRadius)
         if (fill) drawRoundRect(color.copy(alpha = .14f), Offset(inset, inset), frameSize, corner)
         val stroke = 1.5.dp.toPx()
         if (outline) drawRoundRect(color.copy(alpha = .45f), Offset(inset + stroke / 2, inset + stroke / 2),
             Size((frameSize.width - stroke).coerceAtLeast(0f), (frameSize.height - stroke).coerceAtLeast(0f)),
-            CornerRadius((radius.toPx() - stroke / 2).coerceAtLeast(0f)),
+            CornerRadius((frameRadius - stroke / 2).coerceAtLeast(0f)),
             style = Stroke(stroke))
     }
