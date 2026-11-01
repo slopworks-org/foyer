@@ -188,16 +188,16 @@ class FolderEntriesRealTest {
                 release(cancel = true)
                 main { assertEquals(placed, activity.graph.layout.layout.value) }
                 shot("07-cancel-retains-both")
-                // No dwell: ordinary icon-to-icon movement retains the existing swap affordance.
+                // Center release before arming cancels; swaps require an edge intent.
                 reset(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(apps[0]), 2, 2), AppContent(apps[1]), 0, 0))
                 main { start = state.appIconBounds.getValue(2).center; destination = state.appIconBounds.getValue(1).center }
                 begin(start); approach(destination); release()
                 main {
                     assertTrue(activity.graph.layout.layout.value.items.all { it.content is AppContent })
-                    assertEquals(2, activity.graph.layout.layout.value.items.first { it.id == 2L }.x)
+                    assertEquals(0, activity.graph.layout.layout.value.items.first { it.id == 2L }.x)
                 }
-                shot("08-fast-center-drop-swaps")
-                report.append("Full large folder rejects tenth duplicate without consuming source. ACTION_CANCEL preserves both apps after arming. Immediate center release swaps existing desktop apps.\n")
+                shot("08-prearm-center-drop-cancels")
+                report.append("Full large folder rejects tenth duplicate without consuming source. ACTION_CANCEL preserves both apps after arming. Pre-arm center release retains both desktop apps.\n")
                 main { rtl.value = true }
                 reset(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(apps[0]), 0, 2), AppContent(apps[0]), 4, 0))
                 main { start = state.appIconBounds.getValue(2).center; destination = state.appIconBounds.getValue(1).center }

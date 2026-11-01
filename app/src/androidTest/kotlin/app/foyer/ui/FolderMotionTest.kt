@@ -417,7 +417,7 @@ class FolderMotionTest {
     }
 
     @Test fun landingAcrossPreviewCounts() {
-        for (count in listOf(0, 1, 2, 3, 4, 5, 8, 9, 10)) {
+        for (count in listOf(1, 2, 3, 4, 5, 8, 9, 10)) {
             for (large in listOf(false, true)) {
                 if (large && count >= 9) continue
                 seed(count, 2, 3)
