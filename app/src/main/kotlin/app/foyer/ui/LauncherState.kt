@@ -72,11 +72,20 @@ sealed interface DragSource {
     data class New(val content: Content) : DragSource
 }
 
+internal class MergePreview(val target: HomeItem, val bounds: androidx.compose.ui.geometry.Rect, val incoming: Icon?) {
+    val progress = Animatable(0f)
+    var released by mutableStateOf(false)
+    var committed by mutableStateOf(false)
+    var job: kotlinx.coroutines.Job? = null
+}
+
 internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.AppKey,
     val icon: Icon?, val origin: Offset, val scale: Float, val velocity: Offset = Offset.Zero,
     val releasedNanos: Long = System.nanoTime()) {
     var entryId by mutableStateOf<String?>(null)
     var validated by mutableStateOf(false)
+    var returning by mutableStateOf(false)
+    var source: DragSession? = null
 }
 
 @Stable
@@ -88,6 +97,8 @@ class DragSession(
     pointer: Offset,
 ) {
     var visualScale = 1f
+    val origin = pointer + anchorOffset
+    var released = false
     var pointer by mutableStateOf(pointer)
     val anchor get() = pointer + anchorOffset
     val content: Content get() = when (source) {
@@ -109,7 +120,9 @@ sealed interface DropTarget {
 }
 
 @Stable
-class LauncherState(val graph: Graph, private val scope: CoroutineScope, val actions: LauncherActions) {
+class LauncherState(val graph: Graph, private val scope: CoroutineScope, val actions: LauncherActions,
+    private val validateDropApps: suspend (List<app.foyer.data.AppKey>) -> Set<app.foyer.data.AppKey> = graph.apps::missingFolderApps,
+) {
     // --- search ---
     val searchProgress = Animatable(0f)
     var query by mutableStateOf("")
@@ -169,7 +182,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         private set
     var mergeReady by mutableStateOf<Long?>(null)
         private set
-    private var mergeJob: kotlinx.coroutines.Job? = null
+    private var mergeIntent = MergeIntent()
+    internal val mergePreviews = androidx.compose.runtime.mutableStateListOf<MergePreview>()
+    private var lastFeedScroll = 0
+    private var validationJob: kotlinx.coroutines.Job? = null
+    private var menuOwner: Long? = null
     var menu by mutableStateOf<MenuSpec?>(null)
     var selectedWidget by mutableStateOf<Long?>(null)
     var widgetPickerAt by mutableStateOf<Pair<Int, Int>?>(null)
@@ -329,6 +346,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     // --- menus ---
 
     fun showItemMenu(item: HomeItem, anchor: androidx.compose.ui.geometry.Rect) {
+        menuOwner = item.id
         val app = appFor(item.content)
         val actionsList = buildList {
             if (item.content is FolderContent) {
@@ -364,6 +382,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     fun showMemberMenu(folderId: Long, entry: app.foyer.data.FolderEntry, anchor: androidx.compose.ui.geometry.Rect) {
+        menuOwner = folderId
         val app = appFor(AppContent(entry.app))
         menu = MenuSpec(anchor, actions = buildList {
             if (app != null) add(infoAction(app))
@@ -386,6 +405,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     fun showSearchMenu(content: Content, anchor: androidx.compose.ui.geometry.Rect) {
+        menuOwner = null
         val app = appFor(content)
         val actionsList = buildList {
             if (app != null && content is AppContent) {
@@ -419,6 +439,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         if (app.isSystem) null else MenuAction(R.string.action_uninstall, MenuIcons.Delete) { actions.uninstall(app) }
 
     fun showHomeMenu(cellX: Int, cellY: Int, anchor: androidx.compose.ui.geometry.Rect) {
+        menuOwner = null
         menu = MenuSpec(
             anchor,
             actions = listOf(
@@ -437,109 +458,204 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun startDrag(session: DragSession) {
         menu = null
+        validationJob?.cancel()
         folderLanding = null
         resetMerge()
+        mergePreviews.forEach { it.job?.cancel() }
+        mergePreviews.clear()
+        lastFeedScroll = feedScroll.value
         drag = session
         if (searchOpen) closeSearch()
     }
 
     fun moveDrag(pointer: Offset) {
-        drag?.pointer = pointer
+        drag?.takeUnless { it.released }?.pointer = pointer
         refreshDragTargets()
     }
 
     fun refreshDragTargets() {
-        val session = drag ?: return
-        val candidate = mergeAppAt(session)?.id
-        if (mergeCandidate != candidate) {
-            resetMerge()
-            mergeCandidate = candidate
-            if (candidate != null) mergeJob = scope.launch {
-                kotlinx.coroutines.delay(450)
-                if (drag === session && mergeAppAt(session)?.id == candidate) mergeReady = candidate
+        val session = drag?.takeUnless { it.released } ?: return
+        val now = android.os.SystemClock.uptimeMillis()
+        val scrolling = feedScroll.value != lastFeedScroll
+        lastFeedScroll = feedScroll.value
+        val icons = mergeIcons(session)
+        val next = mergeIntent.update(session.anchor, icons, now, scrolling)
+        if (next.candidate != mergeIntent.candidate) {
+            reverseMergePreviews()
+            mergeReady = null
+        }
+        mergeIntent = next
+        mergeCandidate = next.candidate
+        val candidate = next.candidate
+        if (candidate != null && next.recognized(now) && mergePreviews.none { it.target.id == candidate && !it.released }) {
+            val item = layout.items.find { it.id == candidate } ?: return
+            val preview = mergePreviews.firstOrNull { it.target == item } ?: MergePreview(item, icons[candidate] ?: return, session.icon).also { mergePreviews += it }
+            preview.job?.cancel()
+            preview.released = false
+            preview.job = scope.launch {
+                preview.progress.animateTo(1f, androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing))
             }
         }
-        val target = targetFor(session) as? DropTarget.Folder
-        val id = target?.id
+        mergeReady = candidate?.takeIf { next.armed(now) }
+        val id = (targetFor(session) as? DropTarget.Folder)?.id
         if (hoverFolder != id) {
             hoverJob?.cancel()
             hoverFolder = id
             if (id != null && (layout.items.find { it.id == id }?.content as? FolderContent)?.large == false && openFolder != id && session.source !is DragSource.Member) hoverJob = scope.launch {
                 kotlinx.coroutines.delay(550)
-                if (drag === session) openFolder = id
+                if (drag === session && !session.released) openFolder = id
+            }
+        }
+    }
+
+    private fun reverseMergePreviews() {
+        mergePreviews.filter { !it.committed }.forEach { preview ->
+            if (!preview.released) {
+                preview.released = true
+                preview.job?.cancel()
+                preview.job = scope.launch {
+                    preview.progress.animateTo(0f, androidx.compose.animation.core.tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+                    mergePreviews.remove(preview)
+                }
             }
         }
     }
 
     private fun resetMerge() {
-        mergeJob?.cancel()
+        reverseMergePreviews()
+        mergeIntent = MergeIntent()
         mergeCandidate = null
         mergeReady = null
     }
 
-    /** Center dwell expresses merge intent; the surrounding cell continues to allow swaps. */
-    private fun mergeAppAt(s: DragSession): HomeItem? {
-        if (s.content !is AppContent) return null
-        val root = rootCoords ?: return null
+    private fun mergeIcons(s: DragSession): Map<Long, androidx.compose.ui.geometry.Rect> {
+        if (s.content !is AppContent) return emptyMap()
+        val root = rootCoords ?: return emptyMap()
         val viewport = androidx.compose.ui.geometry.Rect(0f, 0f, root.size.width.toFloat(), root.size.height.toFloat())
         val dock = dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.let { androidx.compose.ui.geometry.Rect(0f, it.top, viewport.right, viewport.bottom) }
-        if (dropLayerAt(s.anchor, viewport, folderPanelBounds.takeIf { openFolder != null }, dock) != DropLayer.Feed) return null
-        return layout.feed.firstOrNull { item ->
-            item.id != s.placedId && item.content is AppContent && appIconBounds[item.id]?.let {
-                androidx.compose.ui.geometry.Rect(it.center - Offset(it.width * .35f, it.height * .35f), androidx.compose.ui.geometry.Size(it.width * .7f, it.height * .7f)).contains(s.anchor)
-            } == true
-        }
+        if (dropLayerAt(s.anchor, viewport, folderPanelBounds.takeIf { openFolder != null }, dock) != DropLayer.Feed) return emptyMap()
+        return layout.feed.filter { it.id != s.placedId && it.content is AppContent }.mapNotNull { item ->
+            appIconBounds[item.id]?.let { item.id to it }
+        }.toMap()
     }
 
     fun cancelDrag() {
+        if (drag == null) folderLanding?.let { finishLanding(it) }
+        validationJob?.cancel()
+        mergePreviews.filter { !it.committed }.forEach { it.released = false }
         resetMerge()
-        folderLanding = null
+        val session = drag
+        if (session != null && !session.isWidget && session.content is AppContent) {
+            val flight = folderLanding ?: FolderLanding(-1, (session.content as AppContent).app, session.icon, session.anchor, session.visualScale)
+            flight.source = session
+            flight.returning = true
+            flight.validated = true
+            session.released = true
+            folderLanding = flight
+        } else { folderLanding = null; drag = null }
         hoverJob?.cancel()
         hoverFolder = null
-        drag = null
-        if (!searchOpen) query = ""
+        if (drag == null && !searchOpen) query = ""
     }
 
     fun endDrag(velocity: Offset = Offset.Zero) {
-        val s = drag ?: return
+        val s = drag?.takeUnless { it.released } ?: return
+        refreshDragTargets() // Release always uses current geometry and eligibility.
         val target = targetFor(s)
-        resetMerge()
+        val preview = mergePreviews.lastOrNull { it.target.id == (target as? DropTarget.Merge)?.target?.id && !it.released }
+        if (preview == null) resetMerge() else preview.released = true
         hoverJob?.cancel()
         hoverFolder = null
+        s.released = true
         val key = (s.content as? AppContent)?.app
-        val release = s.anchor
-        val releaseScale = s.visualScale
-        val flight = if (target is DropTarget.Folder && key != null)
-            FolderLanding(target.id, key, s.icon, release, releaseScale, velocity).also { folderLanding = it } else null
-        scope.launch {
+        val folderId = (target as? DropTarget.Folder)?.id ?: (target as? DropTarget.Merge)?.target?.id ?: -1
+        val destinationSnapshot = layout.items.find { it.id == folderId }
+        val flight = key?.let { FolderLanding(folderId, it, s.icon, s.anchor, s.visualScale, velocity).also {
+            it.source = s
+            folderLanding = it
+        } }
+        validationJob?.cancel()
+        validationJob = scope.launch {
             val keys = listOfNotNull(key, ((target as? DropTarget.Merge)?.target?.content as? AppContent)?.app)
-            val missing = graph.apps.missingFolderApps(keys)
-            if (drag !== s) return@launch
+            val missing = try {
+                kotlinx.coroutines.withTimeoutOrNull(1500) { validateDropApps(keys) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (drag !== s || !s.released) return@launch
+            var applied: Pair<HomeLayout, Long>? = null
+            var entryId: String? = null
             graph.layout.edit { current ->
-                val available = keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages }
-                val plan = if (available && target != null) plan(s, target, current) else null
-                if (plan != null) {
-                    if (target is DropTarget.Folder && key != null) {
-                        val before = (current.items.find { it.id == target.id }?.content as? FolderContent)?.entries.orEmpty().map { it.id }.toSet()
-                        flight?.entryId = (s.source as? DragSource.Member)?.takeIf { it.folderId == target.id }?.entryId
-                            ?: (plan.first.items.find { it.id == target.id }?.content as? FolderContent)?.entries?.firstOrNull { it.id !in before }?.id
-                        flight?.validated = true
-                    } else dropOrigins[plan.second] = s.anchor
-                    plan.first
-                } else {
-                    if (folderLanding === flight) folderLanding = null
-                    if (target is DropTarget.Folder || target is DropTarget.Merge) folderFeedback = R.string.folder_drop_failed
-                    else if (s.content is FolderContent) folderFeedback = R.string.folder_move_failed
-                    s.placedId?.let { dropOrigins[it] = s.anchor }
-                    current
+                val available = missing != null && keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages }
+                val destinationUnchanged = target !is DropTarget.Folder || current.items.find { it.id == folderId } == destinationSnapshot
+                val result = if (available && destinationUnchanged && target != null) plan(s, target, current) else null
+                applied = result
+                if (result != null && folderId >= 0) {
+                    val before = (current.items.find { it.id == folderId }?.content as? FolderContent)?.entries.orEmpty().map { it.id }.toSet()
+                    entryId = (s.source as? DragSource.Member)?.takeIf { it.folderId == folderId }?.entryId
+                        ?: (result.first.items.find { it.id == folderId }?.content as? FolderContent)?.entries?.lastOrNull { it.id !in before }?.id
                 }
+                result?.first ?: current
             }
-            if (drag === s) {
-                if (s.source is DragSource.Member && (target as? DropTarget.Folder)?.id != s.source.folderId) openFolder = null
+            // Visual side effects run once, after the retryable transform has committed.
+            if (drag !== s) return@launch
+            if (applied != null && folderId >= 0 && flight != null) {
+                flight.entryId = entryId
+                flight.validated = true
+                preview?.committed = true
+                if (s.source is DragSource.Member && folderId != s.source.folderId) openFolder = null
                 drag = null
-                if (!searchOpen) query = ""
+            } else if (applied != null) {
+                if (s.source is DragSource.Member) openFolder = null
+                dropOrigins[applied!!.second] = s.anchor
+                folderLanding = null
+                drag = null
+            } else {
+                preview?.let { it.released = false }
+                resetMerge()
+                if (flight != null) { flight.returning = true; flight.validated = true }
+                else { s.placedId?.let { dropOrigins[it] = s.anchor }; drag = null }
             }
+            mergeCandidate = null
+            mergeReady = null
+            mergeIntent = MergeIntent()
+            if (drag == null && !searchOpen) query = ""
         }
+    }
+
+    internal fun finishLanding(flight: FolderLanding) {
+        if (folderLanding !== flight) return
+        folderLanding = null
+        if (drag === flight.source) drag = null
+        mergePreviews.filter { it.target.id == flight.folderId && it.committed }.toList().forEach { mergePreviews.remove(it) }
+        if (!searchOpen) query = ""
+    }
+
+    /** Remove UI ownership as soon as authoritative edits remove the folder. */
+    fun reconcileFolderUi(current: HomeLayout) {
+        val ids = current.items.filter { it.content is FolderContent }.map { it.id }.toSet()
+        if (requestedFolder != null && requestedFolder !in ids) {
+            requestedFolder = null
+            focusManager?.clearFocus()
+            keyboard?.hide()
+        }
+        if (folderTransitionId != null && folderTransitionId !in ids) {
+            folderTransitionId = null
+            folderPanelBounds = null
+            folderGridBounds = null
+            folderHitGridBounds = null
+            folderContentViewport = null
+        }
+        if (hoverFolder != null && hoverFolder !in ids) { hoverJob?.cancel(); hoverFolder = null }
+        mergePreviews.filter { it.committed && it.target.id !in ids }.toList().forEach { mergePreviews.remove(it) }
+        folderBounds.keys.retainAll(ids)
+        folderSurfaceBounds.keys.retainAll(ids)
+        memberBounds.keys.removeAll { it.first !in ids }
+        panelMemberBounds.keys.removeAll { it.first !in ids }
+        folderMemberFrames.keys.removeAll { it.first !in ids }
+        if (menuOwner != null && current.items.none { it.id == menuOwner }) { menu = null; menuOwner = null }
     }
 
     fun folderOwnsDrag(s: DragSession): Boolean = openFolder != null &&
@@ -573,7 +689,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             DropLayer.Feed -> Unit
         }
         if (s.content is AppContent) {
-            mergeAppAt(s)?.takeIf { it.id == mergeReady }?.let { return DropTarget.Merge(it) }
+            mergeIntent.candidate?.let { id ->
+                if (id != mergeReady) return null
+                return layout.items.find { it.id == id }?.let { DropTarget.Merge(it) }
+            }
+            if (mergeIntent.blocksSwap(android.os.SystemClock.uptimeMillis())) return null
             folderSurfaceBounds.entries.firstOrNull { (id, bounds) ->
                 (layout.items.find { it.id == id }?.content as? FolderContent)?.large == true && bounds.contains(p)
             }?.let { (id, bounds) ->

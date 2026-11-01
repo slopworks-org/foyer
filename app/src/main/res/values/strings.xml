@@ -52,7 +52,6 @@
     <string name="folder_move_to">Move to %1$s</string>
     <string name="folder_actions">Folder actions</string>
     <string name="folder_combine_with">Combine with %1$s</string>
-    <string name="folder_merge_hint">Hold to group</string>
-    <string name="folder_merge_ready">Release to group</string>
+    <string name="folder_merge_ready">Ready to combine</string>
     <string name="folder_position_label">%1$s, row %2$d, column %3$d</string>
 </resources>

@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -59,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -85,7 +85,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -292,7 +291,7 @@ private fun Feed(
         val maxSpeed = with(density) { 14.dp.toPx() }
         while (true) {
             withFrameNanos { }
-            val s = state.drag ?: break
+            val s = state.drag?.takeUnless { it.released } ?: break
             state.refreshDragTargets()
             if (state.folderOwnsDrag(s)) continue
             val vp = state.viewportCoords?.takeIf { it.isAttached } ?: continue
@@ -305,7 +304,10 @@ private fun Feed(
                 y > bottom - zone && y < bottom + zone * 0.5f -> maxSpeed * ((y - (bottom - zone)) / zone).coerceIn(0f, 1f)
                 else -> 0f
             }
-            if (delta != 0f) state.feedScroll.scrollBy(delta)
+            if (delta != 0f) {
+                state.feedScroll.scrollBy(delta)
+                state.refreshDragTargets()
+            }
         }
     }
 
@@ -482,19 +484,18 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
         )
     }
     DisposableEffect(item.id) { onDispose { state.appIconBounds.remove(item.id) } }
-    val merging = state.mergeCandidate == item.id && state.drag != null
     val ready = state.mergeReady == item.id
+    val previewing = state.mergePreviews.any { it.target.id == item.id }
+    val readiness = if (ready) stringResource(R.string.folder_merge_ready) else ""
     val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
-    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty() }, contentAlignment = Alignment.Center) {
-        if (merging) Box(Modifier.size(iconSize + 12.dp).border(if (ready) 3.dp else 1.dp,
-            MaterialTheme.colorScheme.primary, CircleShape))
-        Box(Modifier.scale(scale).onGloballyPositioned {
+    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty(); stateDescription = readiness }, contentAlignment = Alignment.Center) {
+        Box(Modifier.onGloballyPositioned {
             if (content is AppContent && !item.dock) state.appIconBounds[item.id] = it.boundsInRoot()
         }) {
-            if (content is ShortcutContent) ShortcutIcon(state, shortcut, app, iconSize)
+            if (content is ShortcutContent) Box(Modifier.scale(scale)) { ShortcutIcon(state, shortcut, app, iconSize) }
             else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer {
-                alpha = if (app == null) 0.35f else 1f
-                scaleX = if (ready) .72f else 1f
+                alpha = if (previewing) 0f else if (app == null) 0.35f else 1f
+                scaleX = scale
                 scaleY = scaleX
             })
         }
@@ -835,30 +836,6 @@ private fun DockSearchBar(modifier: Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(MenuIcons.Search, null, Modifier.size(24.dp), tint = colors.onSurfaceVariant)
-    }
-}
-
-/** Root-space feedback remains readable beside edge columns and above the dock in either locale. */
-@Composable
-internal fun MergeHintOverlay(state: LauncherState) {
-    if (state.drag == null) return
-    val candidate = state.mergeCandidate ?: return
-    val bounds = state.appIconBounds[candidate] ?: return
-    val root = state.rootCoords ?: return
-    val density = LocalDensity.current
-    val margin = with(density) { 8.dp.toPx() }
-    val width = with(density) { 176.dp.toPx() }.coerceAtMost(root.size.width - margin * 2)
-    val height = with(density) { 32.dp.toPx() }
-    val ceiling = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: root.size.height.toFloat()
-    val x = (bounds.center.x - width / 2).coerceIn(margin, (root.size.width - width - margin).coerceAtLeast(margin))
-    val below = bounds.bottom + margin
-    val y = (if (below + height + margin <= ceiling) below else bounds.top - height - margin).coerceAtLeast(margin)
-    Box(Modifier.absoluteOffset { IntOffset(x.roundToInt(), y.roundToInt()) }.testTag("folder-merge-hint")
-        .requiredSize(with(density) { width.toDp() }, 32.dp)
-        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-        Text(stringResource(if (state.mergeReady == candidate) R.string.folder_merge_ready else R.string.folder_merge_hint),
-            color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall,
-            maxLines = 1, textAlign = TextAlign.Center)
     }
 }
 

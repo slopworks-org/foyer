@@ -56,6 +56,7 @@ fun FoyerRoot(state: LauncherState) {
         state.folderFeedback?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
         state.folderFeedback = null
     }
+    androidx.compose.runtime.LaunchedEffect(layout) { state.reconcileFolderUi(layout) }
     val scope = rememberCoroutineScope()
     val closePull = remember { SearchClosePull(state) }
     val lift = keyboardLift()
@@ -123,8 +124,8 @@ fun FoyerRoot(state: LauncherState) {
                 // These overlays use physical root coordinates, regardless of locale.
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Box(Modifier.fillMaxSize()) {
+                        MergePreviewOverlay(state, layout)
                         DragGhost(state, iconSize = state.iconSize)
-                        MergeHintOverlay(state)
                         FolderLandingOverlay(state, layout)
                     }
                 }

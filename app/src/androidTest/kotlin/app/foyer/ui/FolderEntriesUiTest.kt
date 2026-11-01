@@ -77,8 +77,10 @@ class FolderEntriesUiTest {
                 assertNull(state.mergeCandidate)
                 kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo(state.cellH.toInt()) }
             }
-            rule.mainClock.advanceTimeBy(650)
+            rule.mainClock.advanceTimeBy(64)
+            android.os.SystemClock.sleep(340)
             rule.runOnIdle {
+                state.refreshDragTargets()
                 assertEquals(1L, state.mergeCandidate)
                 assertEquals(1L, state.mergeReady)
                 kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo((state.cellH * 2).toInt()) }
@@ -194,12 +196,12 @@ class FolderEntriesUiTest {
                 state.moveDrag(anchor)
             }
             rule.mainClock.advanceTimeBy(700)
+            android.os.SystemClock.sleep(340)
+            rule.runOnUiThread { state.refreshDragTargets() }
             rule.waitUntil(5000) { state.mergeReady == 1L }
             rule.mainClock.advanceTimeBy(32)
-            val hint = rule.onNodeWithTag("folder-merge-hint", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            rule.onNodeWithTag("folder-merge-preview", useUnmergedTree = true).assertExists()
             val ghost = rule.onNodeWithTag("drag-ghost", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-            assertTrue(hint.left >= 0f && hint.right <= state.rootCoords!!.size.width)
-            assertTrue(hint.left < anchor.x && hint.right > anchor.x)
             assertEquals(anchor.x, ghost.center.x, 1f)
             assertEquals(anchor.y, ghost.center.y, 1f)
             shot("15-rtl-feedback-and-ghost-physical-coordinates")

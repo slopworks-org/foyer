@@ -523,7 +523,7 @@ class FolderMotionTest {
         }
     }
 
-    @Test fun failedAndCanceledDropsNeverCreateLanding() {
+    @Test fun failedAndCanceledDropsReturnWithoutMutation() {
         seed(9)
         rule.runOnIdle {
             state.graph.layout.edit { Edits.folder(it, folderId, (it.items.first().content as FolderContent).copy(large = true)) }
@@ -542,7 +542,7 @@ class FolderMotionTest {
         rule.runOnIdle {
             state.startDrag(DragSession(DragSource.New(AppContent(apps[10])), null, Offset.Zero, Offset.Zero))
             state.cancelDrag()
-            assertNull(state.folderLanding)
+            assertTrue(state.folderLanding?.returning == true)
             assertEquals(apps.take(9), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
         }
         seed(2)

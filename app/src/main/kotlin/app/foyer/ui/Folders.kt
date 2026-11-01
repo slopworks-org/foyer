@@ -179,7 +179,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
         val target = state.drag?.let { state.targetFor(it) } as? DropTarget.Folder
         BoxWithConstraints(panel, contentAlignment = Alignment.Center) {
             val surface = if (folder.large) Modifier.size(minOf(maxWidth, maxHeight)) else Modifier.fillMaxSize()
-            Box(surface.graphicsLayer { alpha = if (interactive && state.folderTransitionId == item.id) 0f else 1f }.onGloballyPositioned { if (interactive) state.folderSurfaceBounds[item.id] = it.boundsInRoot() }
+            Box(surface.graphicsLayer { alpha = if (interactive && (state.folderTransitionId == item.id || state.mergePreviews.any { it.target.id == item.id && it.committed })) 0f else 1f }.onGloballyPositioned { if (interactive) state.folderSurfaceBounds[item.id] = it.boundsInRoot() }
                 .then(if (interactive && target?.id == item.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary,
                 if (folder.large) RoundedCornerShape(24.dp) else CircleShape) else Modifier)) {
                 // A sibling hit target gives member drags exclusive ownership of their gestures.
@@ -216,9 +216,17 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                                 val x by animateFloatAsState(center.x, tween(240), label = "preview x")
                                 val y by animateFloatAsState(center.y, tween(240), label = "preview y")
                                 val size = iconSize * .38f
+                                val density = LocalDensity.current
+                                val frame = with(density) {
+                                    val inner = Rect(Offset.Zero, Size(maxWidth.toPx(), maxHeight.toPx()))
+                                    // The outer Box has already applied the shared 5dp inset.
+                                    val resting = folderMemberStart(inner, false, folder.apps.size, index, iconSize.toPx(), 0f)
+                                    Rect(Offset(inner.width * x - resting.width / 2, inner.height * y - resting.height / 2), resting.size)
+                                }
+                                val dragged = (state.drag?.source as? DragSource.Member)?.let { it.folderId == item.id && it.entryId == folder.entries[index].id } == true
                                 AppIcon(state.appFor(AppContent(folder.entries[index].app))?.icon, size,
-                                    Modifier.offset(maxWidth * x - size / 2, maxHeight * y - size / 2).graphicsLayer {
-                                        alpha = if (state.folderLanding?.let { it.folderId == item.id && it.entryId == folder.entries[index].id } == true) 0f else 1f
+                                    Modifier.absoluteOffset { IntOffset(frame.left.roundToInt(), frame.top.roundToInt()) }.graphicsLayer {
+                                        alpha = if (dragged || state.folderLanding?.let { it.folderId == item.id && it.entryId == folder.entries[index].id } == true) 0f else 1f
                                     })
                             }
                         }
@@ -462,6 +470,50 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
     }
 }
 
+/** The prospective surface and real closed tile use the same physical miniature geometry. */
+@Composable
+internal fun MergePreviewOverlay(state: LauncherState, layout: HomeLayout) {
+    val density = LocalDensity.current
+    val icon = with(density) { state.iconSize.toPx() }
+    val inset = with(density) { 5.dp.toPx() }
+    state.mergePreviews.filter { preview -> layout.items.any { it.id == preview.target.id } }.forEach { preview ->
+        key(preview) {
+            val surface = state.folderSurfaceBounds[preview.target.id]
+                ?: state.appIconBounds[preview.target.id] ?: preview.bounds
+            val progress = preview.progress.value
+            val target = folderMemberFrame(surface, folderMemberStart(surface, false, 2, 0, icon, inset), progress)
+            val incoming = folderMemberStart(surface, false, 2, 1, icon, inset)
+            val projection = remember { Animatable(1f) }
+            LaunchedEffect(preview.released) {
+                if (preview.released) projection.animateTo(0f, tween(80))
+                else projection.animateTo(1f, tween(80))
+            }
+            val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: state.screenHeight
+            val top = state.viewportCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top?.coerceAtLeast(0f) ?: 0f
+            Box(Modifier.fillMaxSize().drawWithContent {
+                clipRect(0f, top, size.width, dockTop.coerceAtLeast(top)) {
+                    val panel = state.folderPanelBounds
+                    if (panel == null) this@drawWithContent.drawContent()
+                    else clipRect(panel.left, panel.top, panel.right, panel.bottom, androidx.compose.ui.graphics.ClipOp.Difference) {
+                        this@drawWithContent.drawContent()
+                    }
+                }
+            }.testTag("folder-merge-preview")) {
+                Box(Modifier.absoluteOffset { IntOffset(surface.left.roundToInt(), surface.top.roundToInt()) }
+                    .size(with(density) { surface.width.toDp() })
+                    .graphicsLayer { alpha = progress; scaleX = .8f + .2f * progress; scaleY = scaleX }
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape))
+                AppIcon(state.appFor(preview.target.content)?.icon, state.iconSize,
+                    Modifier.absoluteOffset { IntOffset((target.center.x - icon / 2).roundToInt(), (target.center.y - icon / 2).roundToInt()) }
+                        .graphicsLayer { scaleX = target.width / icon; scaleY = scaleX })
+                AppIcon(preview.incoming, state.iconSize,
+                    Modifier.absoluteOffset { IntOffset((incoming.center.x - icon / 2).roundToInt(), (incoming.center.y - icon / 2).roundToInt()) }
+                        .graphicsLayer { scaleX = incoming.width / icon; scaleY = scaleX; alpha = .4f * progress * projection.value })
+            }
+        }
+    }
+}
+
 /** One root-space flight owns the icon until the destination is ready to draw it. */
 @Composable
 internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
@@ -475,31 +527,50 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val start = Rect(landing.origin - Offset(startSize / 2, startSize / 2), Size(startSize, startSize))
     val folder = layout.items.find { it.id == landing.folderId }?.content as? FolderContent
     // Keep the flight composed even while reflow temporarily detaches the destination tile.
-    val surface = state.folderSurfaceBounds[landing.folderId] ?: start
+    val liveSurface = state.folderSurfaceBounds[landing.folderId]
+    val surface = liveSurface ?: state.mergePreviews.firstOrNull { it.target.id == landing.folderId }?.bounds ?: start
     val index = (if (folder?.large == true) folder.slotEntries.indexOfFirst { it?.id == landing.entryId } else folder?.entries?.indexOfFirst { it.id == landing.entryId })?.coerceAtLeast(0) ?: 0
     val visible = folderPreviewMembers(if (folder?.large == true) 9 else folder?.apps?.size ?: 0, folder?.large ?: false).any { it.index == index }
     val panel = state.folderTransitionId == landing.folderId
     val memberVisual = if (panel) state.folderMemberFrames[landing.folderId to landing.entryId]?.invoke() else null
-    val end = if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
+    val source = landing.source
+    val sourceBounds = when (val from = source?.source) {
+        is DragSource.Placed -> state.appIconBounds[from.item.id].takeIf { live -> live != null && layout.items.any { it.id == from.item.id && it.content == from.item.content } }
+        is DragSource.Member -> {
+            val fromFolder = layout.items.find { it.id == from.folderId }?.content as? FolderContent
+            val memberIndex = fromFolder?.entries?.indexOfFirst { it.id == from.entryId } ?: -1
+            if (memberIndex < 0) null else if (state.folderTransitionId == from.folderId) state.panelMemberBounds[from.folderId to from.entryId]
+            else state.memberBounds[from.folderId to from.entryId] ?: state.folderSurfaceBounds[from.folderId]?.let {
+                folderMemberStart(it, fromFolder!!.large, fromFolder.apps.size, memberIndex, icon, with(density) { 5.dp.toPx() })
+            }
+        }
+        is DragSource.New -> source.origin.let { Rect(it - Offset(icon / 2, icon / 2), Size(icon, icon)) }
+        null -> null
+    }
+    val end = if (landing.returning) sourceBounds else if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
             folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
         }
-        else if (folder != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) 16.dp else 5.dp).toPx() }) else null
+        else if (folder != null && liveSurface != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) 16.dp else 5.dp).toPx() }) else null
     val destination = end ?: surface
-    val viewport = if (panel) state.folderContentViewport else null
-    val destinationVisible = if (panel) viewport?.overlaps(destination) == true else visible
+    val viewport = if (panel && !landing.returning) state.folderContentViewport else null
+    val destinationVisible = if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New else if (panel) viewport?.overlaps(destination) == true else visible
     val destinationAlpha = if (destinationVisible) memberVisual?.alpha ?: 1f else 0f
-    val target by rememberUpdatedState(if (landing.validated) destination.center else null)
+    val target by rememberUpdatedState(if (landing.validated && end != null) destination.center else null)
+    val canFinish by rememberUpdatedState(end != null || folder == null || landing.returning)
     val velocity = remember(landing) { boundedReleaseVelocity(landing.velocity, icon * 18f) }
     val captureSeconds = remember(landing) { releaseCaptureSeconds(velocity.getDistance(), icon) }
-    var motion by remember(landing) { mutableStateOf(ReleaseMotion(landing.origin, velocity, captureSeconds)) }
+    val appearanceSeconds = remember(landing) { releaseAppearanceSeconds(velocity.getDistance(), icon) }
+    var motion by remember(landing) { mutableStateOf(ReleaseMotion(landing.origin, velocity, captureSeconds, settlingFrequency = releaseSettlingFrequency(velocity.getDistance(), icon))) }
     var appearanceAge by remember(landing) { mutableFloatStateOf(0f) }
-    val progress = FastOutSlowInEasing.transform(releaseAppearanceFraction(appearanceAge, captureSeconds))
+    val progress = FastOutSlowInEasing.transform(releaseAppearanceFraction(appearanceAge, captureSeconds, appearanceSeconds))
     val rootSize = state.rootCoords?.size
     val edge = (startSize + (destination.width - startSize) * progress) / 2f
     val limits by rememberUpdatedState(rootSize?.let {
         releaseLandingBounds(Rect(edge, edge, maxOf(edge, it.width - edge), maxOf(edge, it.height - edge)), target, progress)
     })
     LaunchedEffect(landing) {
+        val durationScale = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+        var waitingAge = 0f
         var previous = withFrameNanos { now ->
             // A real frame can be stamped just before input dispatch; test clocks use a different epoch.
             val elapsed = (now - landing.releasedNanos) / 1_000_000_000f
@@ -508,13 +579,14 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
         }
         while (true) {
             val now = withFrameNanos { it }
-            val dt = ((now - previous) / 1_000_000_000f).coerceIn(0f, .064f)
+            val dt = ((now - previous) / 1_000_000_000f / durationScale.coerceAtLeast(.01f)).coerceIn(0f, if (durationScale == 0f) 3f else .064f)
             motion = motion.step(target, dt, limits)
-            if (landing.validated) appearanceAge += dt
+            if (landing.validated) waitingAge += dt
+            if (landing.validated && canFinish) appearanceAge += dt
             previous = now
-            if (landing.validated && appearanceAge >= captureSeconds + .32f &&
-                (motion.position - (target ?: motion.position)).getDistance() < .5f && motion.velocity.getDistance() < 5f) {
-                if (state.folderLanding === landing) state.folderLanding = null
+            if (landing.validated && appearanceAge >= captureSeconds + appearanceSeconds &&
+                (target == null || (motion.position - target!!).getDistance() < .75f && motion.velocity.getDistance() < 15f) || waitingAge > 3f) {
+                state.finishLanding(landing)
                 break
             }
         }
