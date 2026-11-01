@@ -226,7 +226,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                                 }
                                 val dragged = (state.drag?.source as? DragSource.Member)?.let { it.folderId == item.id && it.entryId == folder.entries[index].id } == true
                                 AppIcon(state.appFor(AppContent(folder.entries[index].app))?.icon, size,
-                                    Modifier.absoluteOffset { IntOffset(frame.left.roundToInt(), frame.top.roundToInt()) }.testTag("folder-preview-${item.id}-$index").graphicsLayer {
+                                    Modifier.absoluteOffset { IntOffset(frame.left.roundToInt(), frame.top.roundToInt()) }.onGloballyPositioned { if (interactive) state.memberBounds[item.id to folder.entries[index].id] = it.boundsInRoot() }.testTag("folder-preview-${item.id}-$index").graphicsLayer {
                                         alpha = if (dragged || state.folderLanding?.let { it.folderId == item.id && it.entryId == folder.entries[index].id } == true) 0f else 1f
                                     })
                             }
@@ -526,7 +526,9 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     }
     val startSize = icon * landing.scale
     val start = Rect(landing.origin - Offset(startSize / 2, startSize / 2), Size(startSize, startSize))
-    val folder = layout.items.find { it.id == landing.folderId }?.content as? FolderContent
+    val destinationItem = layout.items.find { it.id == landing.folderId }
+    val folder = destinationItem?.content as? FolderContent
+    val desktopDestination = (destinationItem?.content as? AppContent)?.takeIf { it.app == landing.key }?.let { state.appIconBounds[landing.folderId] }
     // Keep the flight composed even while reflow temporarily detaches the destination tile.
     val liveSurface = state.folderSurfaceBounds[landing.folderId]
     val surface = liveSurface ?: state.mergePreviews.firstOrNull { it.target.id == landing.folderId }?.bounds ?: start
@@ -552,13 +554,13 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
         is DragSource.New -> source.origin.let { Rect(it - Offset(icon / 2, icon / 2), Size(icon, icon)) }
         null -> null
     }
-    val end = if (landing.returning) sourceBounds else if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
+    val end = if (landing.returning) sourceBounds else if (desktopDestination != null) desktopDestination else if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
             folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
         }
         else if (folder != null && liveSurface != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) 16.dp else 5.dp).toPx() }) else null
     val destination = end ?: surface
     val viewport = if (if (landing.returning) returningMember != null else panel) state.folderContentViewport else null
-    val destinationVisible = if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible
+    val destinationVisible = if (!landing.returning && desktopDestination != null) true else if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible
     val destinationAlpha = if (destinationVisible) (if (landing.returning) returnVisual?.alpha else memberVisual?.alpha) ?: 1f else 0f
     val target by rememberUpdatedState(if (landing.validated && end != null) destination.center else null)
     val canFinish by rememberUpdatedState(end != null || folder == null || landing.returning)
@@ -615,4 +617,43 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
                     (clip.bottom - frame.top) * size.height / frame.height) { this@drawWithContent.drawContent() }
             }
         })
+}
+
+
+/** A single visual owner carries the survivor from its last displayed frame to the real app icon. */
+@Composable
+internal fun FolderCollapseOverlay(state: LauncherState) {
+    val density = LocalDensity.current
+    val icon = with(density) { state.iconSize.toPx() }
+    state.folderCollapses.values.toList().forEach { collapse ->
+        key(collapse) {
+            val destination = state.appIconBounds[collapse.item.id]
+            LaunchedEffect(collapse) {
+                // Let the replacement app measure its actual icon, rather than using cell bounds.
+                withFrameNanos { }
+                try { collapse.progress.animateTo(1f, tween(260, easing = FastOutSlowInEasing)) }
+                finally { if (state.folderCollapses[collapse.item.id] === collapse) state.folderCollapses.remove(collapse.item.id) }
+            }
+            val p = collapse.progress.value
+            val frame = folderMemberFrame(collapse.start, destination ?: collapse.start, p)
+            if (collapse.panel) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .22f * (1f - p))))
+            Box(Modifier.offset { IntOffset(collapse.surface.left.roundToInt(), collapse.surface.top.roundToInt()) }
+                .size(with(density) { collapse.surface.width.toDp() }, with(density) { collapse.surface.height.toDp() })
+                .graphicsLayer { alpha = 1f - p; scaleX = 1f - .12f * p; scaleY = scaleX }
+                .clip(if (collapse.panel || (collapse.item.content as FolderContent).large) RoundedCornerShape(24.dp) else CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh))
+            val oldFolder = collapse.item.content as FolderContent
+            if (!oldFolder.large && oldFolder.name.isNotEmpty()) Text(oldFolder.name,
+                color = if (collapse.panel) MaterialTheme.colorScheme.onSurface else LocalOnWallpaper.current.text,
+                style = if (collapse.panel) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center, maxLines = 1,
+                modifier = Modifier.offset { IntOffset(collapse.surface.left.roundToInt(),
+                    (if (collapse.panel) collapse.surface.bottom - with(density) { 48.dp.toPx() } else collapse.surface.bottom + with(density) { 4.dp.toPx() }).roundToInt()) }
+                    .width(with(density) { collapse.surface.width.toDp() }).then(if (collapse.panel) Modifier.height(48.dp).wrapContentHeight() else Modifier)
+                    .graphicsLayer { alpha = 1f - p })
+            AppIcon(collapse.icon, state.iconSize, Modifier.offset {
+                IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt())
+            }.graphicsLayer { scaleX = frame.width / icon; scaleY = frame.height / icon }.testTag("folder-survivor-${collapse.item.id}"))
+        }
+    }
 }

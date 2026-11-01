@@ -47,6 +47,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun FoyerRoot(state: LauncherState) {
     val layout by state.graph.layout.layout.collectAsStateWithLifecycle()
+    val density = LocalDensity.current
+    state.observeFolderChanges(layout, with(density) { state.iconSize.toPx() }, with(density) { 5.dp.toPx() })
     val searchable by state.graph.searchable.collectAsStateWithLifecycle()
     state.searchable = searchable
     state.keyboard = LocalSoftwareKeyboardController.current
@@ -126,6 +128,7 @@ fun FoyerRoot(state: LauncherState) {
                     Box(Modifier.fillMaxSize()) {
                         MergePreviewOverlay(state, layout)
                         DragGhost(state, iconSize = state.iconSize)
+                        FolderCollapseOverlay(state)
                         FolderLandingOverlay(state, layout)
                     }
                 }

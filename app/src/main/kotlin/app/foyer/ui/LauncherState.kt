@@ -88,6 +88,13 @@ internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.Ap
     var source: DragSession? = null
 }
 
+/** Presentation only: authoritative singleton replacement has already committed. */
+internal class FolderCollapse(val item: HomeItem, val key: app.foyer.data.AppKey,
+    val start: androidx.compose.ui.geometry.Rect, val surface: androidx.compose.ui.geometry.Rect,
+    val panel: Boolean, val icon: Icon?) {
+    val progress = Animatable(0f)
+}
+
 @Stable
 class DragSession(
     val source: DragSource,
@@ -172,6 +179,35 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var folderGridScroll = 0f
     internal var folderContentViewport by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
     internal var folderLanding by mutableStateOf<FolderLanding?>(null)
+    internal val folderCollapses = mutableStateMapOf<Long, FolderCollapse>()
+    private var presentedLayout = graph.layout.layout.value
+
+    /** Capture before old compositions and their live geometry are disposed. Never replay on load. */
+    internal fun observeFolderChanges(current: HomeLayout, icon: Float, inset: Float) {
+        if (current === presentedLayout) return
+        val previous = presentedLayout
+        presentedLayout = current
+        folderCollapses.keys.toList().forEach { id ->
+            val collapse = folderCollapses[id]!!
+            if (current.items.find { it.id == id }?.content != AppContent(collapse.key)) folderCollapses.remove(id)
+        }
+        previous.items.forEach { old ->
+            val folder = old.content as? FolderContent ?: return@forEach
+            val next = current.items.find { it.id == old.id } ?: return@forEach
+            val app = next.content as? AppContent ?: return@forEach
+            val survivor = next.folderSurvivor?.let { remaining -> folder.entries.find { it.id == remaining.id } } ?: return@forEach
+            val surface = folderSurfaceBounds[old.id] ?: return@forEach
+            val panel = folderTransitionId == old.id
+            val start = if (panel) folderMemberFrames[old.id to survivor.id]?.invoke()?.bounds
+                ?: panelMemberBounds[old.id to survivor.id] else memberBounds[old.id to survivor.id]
+            val frame = start ?: folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.entries.size,
+                if (folder.large) survivor.slot ?: 0 else folder.entries.indexOf(survivor), icon, if (folder.large) inset * 3.2f else inset)
+            folderCollapses[old.id] = FolderCollapse(old, app.app, frame,
+                if (panel) folderPanelBounds ?: surface else surface, panel, appFor(app)?.icon)
+            if (menuOwner == old.id) { menu = null; menuOwner = null }
+        }
+    }
+
     internal val folderMemberFrames = mutableMapOf<Pair<Long, String>, () -> FolderMemberVisual?>()
     val memberBounds = mutableStateMapOf<Pair<Long, String>, androidx.compose.ui.geometry.Rect>()
     val panelMemberBounds = mutableStateMapOf<Pair<Long, String>, androidx.compose.ui.geometry.Rect>()
@@ -472,6 +508,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     // --- drag & drop ---
 
     fun startDrag(session: DragSession) {
+        (session.source as? DragSource.Placed)?.let { folderCollapses.remove(it.item.id) }
         menu = null
         validationJob?.cancel()
         folderLanding = null

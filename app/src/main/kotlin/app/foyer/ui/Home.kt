@@ -449,7 +449,7 @@ fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Mod
             } else {
                 translationX = springBack.value.x
                 translationY = springBack.value.y
-                alpha = if (dragged) 0f else 1f
+                alpha = if (dragged || state.folderCollapses.containsKey(item.id) || state.folderLanding?.let { it.folderId == item.id && it.validated && !it.returning && content is AppContent && content.app == it.key } == true) 0f else 1f
             }
         }
 
@@ -866,10 +866,8 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
             .testTag("drag-ghost")
             .graphicsLayer {
                 s.visualScale = lift.value
-                // Reveal the prospective folder beneath a centered, finger-bound icon.
-                val morph = state.mergePreviews.filter { !it.committed }.maxOfOrNull { it.progress.value } ?: 0f
-                s.visualAlpha = 1f - .78f * morph
-                alpha = s.visualAlpha
+                s.visualAlpha = 1f
+                alpha = 1f
                 scaleX = lift.value
                 scaleY = lift.value
             },
