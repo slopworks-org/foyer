@@ -289,25 +289,37 @@ private fun Feed(
         if (drag == null) return@LaunchedEffect
         val zone = with(density) { 72.dp.toPx() }
         val maxSpeed = with(density) { 14.dp.toPx() }
-        while (true) {
-            withFrameNanos { }
-            val s = state.drag?.takeUnless { it.released } ?: break
-            state.refreshDragTargets()
-            if (state.folderOwnsDrag(s)) continue
-            val vp = state.viewportCoords?.takeIf { it.isAttached } ?: continue
-            val root = state.rootCoords ?: continue
-            val y = vp.localPositionOf(root, s.pointer).y
-            val top = with(density) { topPad.toPx() }
-            val bottom = vp.size.height - with(density) { bottomPad.toPx() } + zone * 0.5f
-            val delta = when {
-                y < top + zone -> -maxSpeed * ((top + zone - y) / zone).coerceIn(0f, 1f)
-                y > bottom - zone && y < bottom + zone * 0.5f -> maxSpeed * ((y - (bottom - zone)) / zone).coerceIn(0f, 1f)
-                else -> 0f
-            }
-            if (delta != 0f) {
-                state.feedScroll.scrollBy(delta)
+        try {
+            while (true) {
+                withFrameNanos { }
+                val s = state.drag?.takeUnless { it.released } ?: break
+                val vp = state.viewportCoords?.takeIf { it.isAttached }
+                val root = state.rootCoords
+                val delta = if (state.folderOwnsDrag(s) || vp == null || root == null) 0f else {
+                    val y = vp.localPositionOf(root, s.pointer).y
+                    val top = with(density) { topPad.toPx() }
+                    val bottom = vp.size.height - with(density) { bottomPad.toPx() } + zone * 0.5f
+                    when {
+                        y < top + zone -> -maxSpeed * ((top + zone - y) / zone).coerceIn(0f, 1f)
+                        y > bottom - zone && y < bottom + zone * 0.5f -> maxSpeed * ((y - (bottom - zone)) / zone).coerceIn(0f, 1f)
+                        else -> 0f
+                    }
+                }
+                // Keep eligibility suppressed between frame and pointer refreshes, not just
+                // the single refresh which observes a changed scroll offset.
+                state.feedAutoScrolling = when {
+                    delta < 0f -> state.feedScroll.canScrollBackward
+                    delta > 0f -> state.feedScroll.canScrollForward
+                    else -> false
+                }
                 state.refreshDragTargets()
+                if (state.feedAutoScrolling) {
+                    state.feedScroll.scrollBy(delta)
+                    state.refreshDragTargets()
+                }
             }
+        } finally {
+            state.feedAutoScrolling = false
         }
     }
 

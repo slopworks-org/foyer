@@ -185,6 +185,57 @@ class FolderMorphTest {
         }
     }
 
+    @Test fun continuousAutoScrollDoesNotRepeatMergeFeedback() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        lateinit var state: LauncherState
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val key = graph.apps.apps.value.first().key
+        try {
+            rule.runOnUiThread {
+                graph.layout.edit { Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(key), 2, 3), AppContent(key), 0, 3) }
+            }
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                state = remember { LauncherState(graph, scope, rule.activity) }
+                FoyerRoot(state)
+            }
+            rule.waitForIdle()
+            rule.mainClock.autoAdvance = false
+            rule.runOnUiThread {
+                val feedback = mutableListOf<Boolean>()
+                state.mergeFeedback = { feedback += it }
+                val source = graph.layout.layout.value.items.last()
+                val target = state.appIconBounds.getValue(1).center
+                state.startDrag(DragSession(DragSource.Placed(source), null, Offset.Zero,
+                    state.appIconBounds.getValue(source.id).center))
+                state.moveDrag(target)
+                assertEquals(listOf(true), feedback)
+                state.feedAutoScrolling = true
+                // Simulate fresh placement stamps between scrolling frames. Even when
+                // the measured offset is unchanged across refreshes, scrolling is active.
+                repeat(8) {
+                    graph.layout.layout.value.items.forEach { item ->
+                        state.appIconMeasurements[item.id] = item to state.feedScroll.value
+                    }
+                    state.refreshDragTargets()
+                    state.moveDrag(target)
+                    state.refreshDragTargets()
+                    assertNull(state.mergeReady)
+                }
+                assertEquals(listOf(true, false), feedback)
+                state.feedAutoScrolling = false
+                state.refreshDragTargets()
+                assertEquals(1L, state.mergeReady)
+                assertEquals(listOf(true, false, true), feedback)
+                state.cancelDrag()
+            }
+        } finally {
+            rule.runOnUiThread { runCatching { state.cancelDrag() }; graph.layout.edit { saved } }
+            rule.mainClock.autoAdvance = true
+        }
+    }
+
     @Test fun immediateReleaseMergesAndValidationTimeoutNeverCommitsLate() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value

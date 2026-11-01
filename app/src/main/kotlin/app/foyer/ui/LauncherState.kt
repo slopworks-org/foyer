@@ -250,6 +250,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     private val mergeReadiness = MergeReadiness { (mergeFeedback ?: platformMergeFeedback)(it) }
     private var mergeIntent = MergeIntent()
     internal val mergePreviews = androidx.compose.runtime.mutableStateListOf<MergePreview>()
+    internal var feedAutoScrolling = false
     private var lastFeedScroll = 0
     private var validationJob: kotlinx.coroutines.Job? = null
     private var pendingValidation: kotlinx.coroutines.CompletableDeferred<Set<app.foyer.data.AppKey>?>? = null
@@ -545,6 +546,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         mergePreviews.forEach { it.job?.cancel() }
         mergePreviews.clear()
         lastFeedScroll = feedScroll.value
+        feedAutoScrolling = false
         drag = session
         if (searchOpen) closeSearch()
     }
@@ -556,7 +558,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun refreshDragTargets() {
         val session = drag?.takeUnless { it.released } ?: return
-        val scrolling = feedScroll.value != lastFeedScroll
+        val scrolling = feedAutoScrolling || feedScroll.value != lastFeedScroll
         lastFeedScroll = feedScroll.value
         val icons = mergeIcons(session)
         val next = mergeIntent.update(session.anchor, icons, scrolling)
