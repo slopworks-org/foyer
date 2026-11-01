@@ -272,7 +272,7 @@ object Edits {
             !l.isFree(item.x, item.y, span, span, id)) return l
         val old = item.content as FolderContent
         // Mode changes deliberately pack occupied row-major order; large mode has no name.
-        val normalized = (if (old.large != folder.large) folder.copy(entries = folder.entries.map { it.copy(slot = null) }) else folder).normalized()
+        val normalized = (if (old.large != folder.large) folder.copy(name = if (folder.large) "" else folder.name, entries = folder.entries.map { it.copy(slot = null) }) else folder).normalized()
         return l.copy(items = l.items.map { if (it.id == id) canonicalFolder(it.copy(w = span, h = span), normalized) else it })
     }
 

@@ -86,6 +86,7 @@ internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.Ap
     var validated by mutableStateOf(false)
     var returning by mutableStateOf(false)
     var source: DragSession? = null
+    var renderedBounds: androidx.compose.ui.geometry.Rect? = null
 }
 
 /** Presentation only: authoritative singleton replacement has already committed. */
@@ -200,7 +201,28 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             val panel = folderTransitionId == old.id
             val start = if (panel) folderMemberFrames[old.id to survivor.id]?.invoke()?.bounds
                 ?: panelMemberBounds[old.id to survivor.id] else memberBounds[old.id to survivor.id]
-            val frame = start ?: folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.entries.size,
+            // Cleanup may preserve the occurrence currently owned by a drag or return flight.
+            // Transfer that visual before disposing the old member gesture can cancel it again.
+            val held = drag?.takeIf { session ->
+                (session.source as? DragSource.Member)?.let { it.folderId == old.id && it.entryId == survivor.id } == true
+            }
+            val flight = folderLanding?.takeIf { landing ->
+                (landing.source?.source as? DragSource.Member)?.let { it.folderId == old.id && it.entryId == survivor.id } == true
+            }
+            val movingFrame = flight?.renderedBounds ?: (held ?: flight?.source)?.let { session ->
+                val diameter = icon * session.visualScale
+                androidx.compose.ui.geometry.Rect(session.anchor - Offset(diameter / 2, diameter / 2),
+                    androidx.compose.ui.geometry.Size(diameter, diameter))
+            }
+            if (held != null || flight != null) {
+                validationJob?.cancel()
+                hoverJob?.cancel()
+                hoverFolder = null
+                resetMerge()
+                if (flight != null) folderLanding = null
+                if (held != null) drag = null
+            }
+            val frame = movingFrame ?: start ?: folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.entries.size,
                 if (folder.large) survivor.slot ?: 0 else folder.entries.indexOf(survivor), icon, if (folder.large) inset * 3.2f else inset)
             folderCollapses[old.id] = FolderCollapse(old, app.app, frame,
                 if (panel) folderPanelBounds ?: surface else surface, panel, appFor(app)?.icon)

@@ -600,6 +600,7 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     }
     val frameSize = start.width + (destination.width - start.width) * progress
     val frame = Rect(motion.position - Offset(frameSize / 2, frameSize / 2), Size(frameSize, frameSize))
+    landing.renderedBounds = frame
     AppIcon(landing.icon, state.iconSize, Modifier
         .offset { IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt()) }
         .graphicsLayer {

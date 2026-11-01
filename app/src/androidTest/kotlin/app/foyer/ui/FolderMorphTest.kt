@@ -22,6 +22,50 @@ import org.junit.Test
 class FolderMorphTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
+    @Test fun cleanupHandsHeldAndReturningSurvivorToOneOwner() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        rule.waitUntil(10000) { graph.apps.apps.value.size >= 2 }
+        val keys = graph.apps.apps.value.take(2).map { it.key }
+        var state: LauncherState? = null
+        try {
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                state = remember { LauncherState(graph, scope, rule.activity) }
+            }
+            rule.waitForIdle()
+            for (returning in listOf(false, true)) rule.runOnUiThread {
+                val current = state!!
+                val initial = Edits.add(HomeLayout(seeded = true), FolderContent(keys), 0, 0)
+                graph.layout.edit { initial }
+                current.observeFolderChanges(initial, 56f, 5f)
+                val entry = (initial.items.single().content as FolderContent).entries.first()
+                current.folderSurfaceBounds[1] = Rect(0f, 0f, 56f, 56f)
+                val session = DragSession(DragSource.Member(1, keys[0], entry.id), null, Offset.Zero, Offset(200f, 300f))
+                current.startDrag(session)
+                val expected = Rect(172f, 272f, 228f, 328f)
+                if (returning) {
+                    current.cancelDrag()
+                    current.folderLanding!!.renderedBounds = expected
+                }
+                val cleaned = Edits.reconcileFolderApps(initial, setOf(keys[1]))
+                graph.layout.edit { cleaned }
+                current.observeFolderChanges(cleaned, 56f, 5f)
+                val collapse = current.folderCollapses.getValue(1)
+                assertEquals(expected, collapse.start)
+                assertNull(current.drag)
+                assertNull(current.folderLanding)
+                // The disposed member's gesture may still send cancellation afterward.
+                current.cancelDrag()
+                assertNull(current.folderLanding)
+                assertSame(collapse, current.folderCollapses[1])
+                assertEquals(AppContent(keys[0]), cleaned.items.single().content)
+            }
+        } finally {
+            rule.runOnUiThread { state?.cancelDrag(); graph.layout.edit { saved } }
+        }
+    }
+
     @Test fun panelAndDockCancellationReturnToIconGeometry() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value

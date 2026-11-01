@@ -19,6 +19,17 @@ class EmptyFoldersTest {
         assertEquals(51L, Edits.normalizeFolders(HomeLayout(items = listOf(empty.copy(id = 50)))).nextId)
     }
 
+    @Test fun emptyFolderModeRoundTripClearsTheName() {
+        val initial = Edits.add(HomeLayout(), FolderContent(name = "Tools"), 0, 0)
+        val enlarged = Edits.folder(initial, 1, (initial.items.single().content as FolderContent).copy(large = true))
+        val large = enlarged.items.single().content as FolderContent
+        assertTrue(large.entries.isEmpty())
+        assertEquals("", large.name)
+        val small = Edits.folder(enlarged, 1, large.copy(large = false)).items.single()
+        assertEquals("", (small.content as FolderContent).name)
+        assertEquals(1, small.w)
+    }
+
     @Test fun zeroToOneAndDuplicateTwoToOneUseStoredTopLeft() {
         for (large in listOf(false, true)) {
             val empty = Edits.add(HomeLayout(), FolderContent(large = large, name = "Keep"), 2, 5)
