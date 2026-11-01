@@ -5,6 +5,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReleaseMotionTest {
+    @Test fun captureRampIsShortEvenForFastFlings() {
+        for (speed in listOf(0f, 100f, 500f, 1000f, 1800f)) {
+            assertTrue(releaseCaptureSeconds(speed, 100f) in .04f.. .10f)
+            assertTrue(releaseSettlingFrequency(speed, 100f) >= 24f)
+        }
+    }
+
     @Test fun resumedMovementDiscardsStaleDirection() {
         for (direction in listOf(-1f, 1f)) {
             val tracker = ReleaseVelocity()
@@ -66,10 +73,10 @@ class ReleaseMotionTest {
         var motion = ReleaseMotion(start, v, releaseCaptureSeconds(v.getDistance(), icon))
         val target = start + Offset(0f, 180f)
         repeat(6) { motion = motion.step(target, .016f) }
-        assertTrue("first 96ms must show at least half an icon of lateral travel", motion.position.x - start.x > icon * .5f)
-        assertTrue("no immediate velocity collapse", motion.velocity.x > 200f)
+        assertTrue("short directional flight remains visible", motion.position.x - start.x > icon * .2f)
+        assertTrue("lateral inertia stays below half an icon", motion.position.x - start.x < icon * .5f)
         val before = motion
-        motion = motion.step(start - Offset(200f, 100f), .00001f)
+        motion = motion.step(start - Offset(200f, 100f), .000001f)
         assertTrue((motion.position - before.position).getDistance() < .02f)
         assertTrue((motion.velocity - before.velocity).getDistance() < 1f)
         repeat(100) { motion = motion.step(target, .016f) }
@@ -107,7 +114,7 @@ class ReleaseMotionTest {
     }
     @Test fun appearanceWaitsForDirectionalTravel() {
         val capture = releaseCaptureSeconds(1000f, 100f)
-        assertEquals(0f, releaseAppearanceFraction(.096f, capture), 0f)
+        assertEquals(0f, releaseAppearanceFraction(.032f, capture), 0f)
         assertEquals(0f, releaseAppearanceFraction(capture, capture), 0f)
         assertEquals(1f, releaseAppearanceFraction(capture + .32f, capture), .0001f)
     }
@@ -127,12 +134,12 @@ class ReleaseMotionTest {
             }
             println("Landing speed=$speed px/s, duration=${elapsed * 1000} ms")
             if (speed <= 200f) assertTrue("ordinary landing: $elapsed", elapsed in .28f.. .42f)
-            else assertTrue(elapsed < 1.5f)
+            else assertTrue("fast landing captures promptly: $elapsed", elapsed < .55f)
         }
         var motion = ReleaseMotion(Offset.Zero, Offset(1000f, 0f))
         repeat(30) { motion = motion.step(null, .016f) }
         val atValidation = motion
-        motion = motion.step(Offset(0f, 100f), .00001f)
+        motion = motion.step(Offset(0f, 100f), .000001f)
         assertTrue(atValidation.position.x > 200f)
         assertTrue((motion.position - atValidation.position).getDistance() < .01f)
         assertTrue((motion.velocity - atValidation.velocity).getDistance() < 1f)

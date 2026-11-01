@@ -61,9 +61,9 @@ internal fun releaseLandingBounds(screen: Rect, target: Offset?, progress: Float
 internal data class ReleaseMotion(
     val position: Offset,
     val velocity: Offset,
-    val captureSeconds: Float = .18f,
+    val captureSeconds: Float = .10f,
     val age: Float = 0f,
-    val settlingFrequency: Float = 14f,
+    val settlingFrequency: Float = 24f,
 ) {
     fun step(target: Offset?, seconds: Float, bounds: Rect? = null): ReleaseMotion {
         var p = position
@@ -95,15 +95,15 @@ internal data class ReleaseMotion(
 }
 
 internal fun releaseCaptureSeconds(speed: Float, icon: Float): Float =
-    .08f + .14f * (speed / (icon * 10f)).coerceIn(0f, 1f)
+    .04f + .06f * (speed / (icon * 10f)).coerceIn(0f, 1f)
 
 /** Scale and opacity cannot conceal the initial directional flight. */
 internal fun releaseAppearanceFraction(age: Float, captureSeconds: Float, appearanceSeconds: Float = .32f): Float =
     ((age - captureSeconds) / appearanceSeconds).coerceIn(0f, 1f)
 
-/** Quiet releases settle within the ordinary landing interval; flings retain visible momentum. */
+/** Capture flings promptly while retaining a short, continuous directional flight. */
 internal fun releaseSettlingFrequency(speed: Float, icon: Float): Float =
-    32f - 18f * ((speed / icon - 2f) / 3f).coerceIn(0f, 1f)
+    32f - 8f * ((speed / icon - 2f) / 3f).coerceIn(0f, 1f)
 
 internal fun releaseAppearanceSeconds(speed: Float, icon: Float): Float =
     .28f + .04f * (speed / (icon * 5f)).coerceIn(0f, 1f)
