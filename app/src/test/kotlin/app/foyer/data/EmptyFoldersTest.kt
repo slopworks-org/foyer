@@ -14,6 +14,8 @@ class EmptyFoldersTest {
         assertEquals(listOf(singleton), normalized.items)
         assertEquals(20L, normalized.nextId)
         assertEquals(normalized, Edits.normalizeFolders(normalized))
+        val oldCounter = HomeLayout(items = listOf(HomeItem(50, FolderContent(), 0, 0)))
+        assertEquals(51L, Edits.normalizeFolders(oldCounter).nextId)
     }
     @Test fun lastOccurrenceTransfersAtomicallyAndRejectionsNeverCleanSources() {
         for (large in listOf(false, true)) {

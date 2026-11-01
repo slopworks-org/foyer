@@ -223,7 +223,7 @@ object Edits {
         val normalized = folder.normalized()
         // A legacy oversized folder becomes small; its old footprint can safely be released.
         item.copy(content = normalized, w = if (normalized.large) 2 else 1, h = if (normalized.large) 2 else 1)
-    })
+    }, nextId = maxOf(l.nextId, (l.items.maxOfOrNull { it.id } ?: 0).coerceAtMost(Long.MAX_VALUE - 1) + 1))
 
     fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout {
         val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
