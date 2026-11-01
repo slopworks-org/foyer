@@ -111,6 +111,33 @@ class ReleaseMotionTest {
         assertEquals(0f, releaseAppearanceFraction(capture, capture), 0f)
         assertEquals(1f, releaseAppearanceFraction(capture + .32f, capture), .0001f)
     }
+    @Test fun ordinaryLandingSettlesInDesignedIntervalAndDelayRetainsCurrentMotion() {
+        val icon = 100f
+        for (speed in listOf(0f, 100f, 200f, 1000f)) {
+            val velocity = Offset(speed, 0f)
+            val capture = releaseCaptureSeconds(speed, icon)
+            var motion = ReleaseMotion(Offset(300f, 400f), velocity, capture,
+                settlingFrequency = releaseSettlingFrequency(speed, icon))
+            val target = Offset(420f, 400f)
+            var elapsed = 0f
+            while (elapsed < 3f) {
+                motion = motion.step(target, .001f)
+                elapsed += .001f
+                if (elapsed >= capture + releaseAppearanceSeconds(speed, icon) && (motion.position - target).getDistance() < .75f && motion.velocity.getDistance() < 15f) break
+            }
+            println("Landing speed=$speed px/s, duration=${elapsed * 1000} ms")
+            if (speed <= 200f) assertTrue("ordinary landing: $elapsed", elapsed in .28f.. .42f)
+            else assertTrue(elapsed < 1.5f)
+        }
+        var motion = ReleaseMotion(Offset.Zero, Offset(1000f, 0f))
+        repeat(30) { motion = motion.step(null, .016f) }
+        val atValidation = motion
+        motion = motion.step(Offset(0f, 100f), .00001f)
+        assertTrue(atValidation.position.x > 200f)
+        assertTrue((motion.position - atValidation.position).getDistance() < .01f)
+        assertTrue((motion.velocity - atValidation.velocity).getDistance() < 1f)
+    }
+
     @Test fun sparseFinalMoveIsNotMistakenForAHoldOnUp() {
         val tracker = ReleaseVelocity()
         tracker.add(0, Offset.Zero)

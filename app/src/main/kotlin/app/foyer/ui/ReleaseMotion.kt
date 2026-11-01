@@ -63,6 +63,7 @@ internal data class ReleaseMotion(
     val velocity: Offset,
     val captureSeconds: Float = .18f,
     val age: Float = 0f,
+    val settlingFrequency: Float = 14f,
 ) {
     fun step(target: Offset?, seconds: Float, bounds: Rect? = null): ReleaseMotion {
         var p = position
@@ -72,7 +73,7 @@ internal data class ReleaseMotion(
         while (elapsed < seconds) {
             val dt = minOf(.002f, seconds - elapsed)
             val fraction = ((age + elapsed) / captureSeconds).coerceIn(0f, 1f)
-            val frequency = 14f * fraction * fraction * (3f - 2f * fraction)
+            val frequency = settlingFrequency * fraction * fraction * (3f - 2f * fraction)
             if (target == null) {
                 val decay = exp(-4f * dt)
                 p += v * ((1f - decay) / 4f)
@@ -97,5 +98,12 @@ internal fun releaseCaptureSeconds(speed: Float, icon: Float): Float =
     .08f + .14f * (speed / (icon * 10f)).coerceIn(0f, 1f)
 
 /** Scale and opacity cannot conceal the initial directional flight. */
-internal fun releaseAppearanceFraction(age: Float, captureSeconds: Float): Float =
-    ((age - captureSeconds) / .32f).coerceIn(0f, 1f)
+internal fun releaseAppearanceFraction(age: Float, captureSeconds: Float, appearanceSeconds: Float = .32f): Float =
+    ((age - captureSeconds) / appearanceSeconds).coerceIn(0f, 1f)
+
+/** Quiet releases settle within the ordinary landing interval; flings retain visible momentum. */
+internal fun releaseSettlingFrequency(speed: Float, icon: Float): Float =
+    32f - 18f * ((speed / icon - 2f) / 3f).coerceIn(0f, 1f)
+
+internal fun releaseAppearanceSeconds(speed: Float, icon: Float): Float =
+    .28f + .04f * (speed / (icon * 5f)).coerceIn(0f, 1f)
