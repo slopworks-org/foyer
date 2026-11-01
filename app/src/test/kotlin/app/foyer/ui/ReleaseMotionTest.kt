@@ -5,6 +5,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReleaseMotionTest {
+    @Test fun resumedMovementDiscardsStaleDirection() {
+        for (direction in listOf(-1f, 1f)) {
+            val tracker = ReleaseVelocity()
+            tracker.add(0, Offset.Zero)
+            tracker.add(1000, Offset(200f, 0f))
+            tracker.add(1016, Offset(200f + direction * 16f, 0f))
+            tracker.add(1032, Offset(200f + direction * 32f, 0f))
+            tracker.add(1034, Offset(200f + direction * 32f, 0f))
+            assertTrue(tracker.velocity().x * direction > 900f)
+        }
+    }
+
+    @Test fun clippedAndMovingDestinationsRemainReachable() {
+        val screen = androidx.compose.ui.geometry.Rect(56f, 56f, 944f, 944f)
+        for (target in listOf(Offset(300f, 30f), Offset(300f, -200f), Offset(1100f, 500f))) {
+            var motion = ReleaseMotion(Offset(500f, 500f), Offset(1200f, -400f))
+            repeat(180) { frame ->
+                val destination = if (frame < 10) Offset(500f, 500f) else target
+                val progress = releaseAppearanceFraction(frame * .016f, motion.captureSeconds)
+                motion = motion.step(destination, .016f, releaseLandingBounds(screen, destination, progress))
+            }
+            assertTrue((motion.position - target).getDistance() < .5f)
+            assertTrue(motion.velocity.getDistance() < 5f)
+        }
+        assertEquals(screen, releaseLandingBounds(screen, Offset(0f, 0f), 0f))
+    }
+
     @Test fun releaseDirectionAndDerivativeSurviveValidationAndRetargeting() {
         for (velocity in listOf(Offset.Zero, Offset(100f, 50f), Offset(-2000f, 1600f))) {
             val release = ReleaseMotion(Offset(300f, 400f), velocity)

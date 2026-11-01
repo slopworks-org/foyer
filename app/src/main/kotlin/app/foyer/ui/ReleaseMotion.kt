@@ -16,6 +16,8 @@ internal class ReleaseVelocity {
     private val samples = ArrayDeque<Pair<Long, Offset>>()
     private var lastMotion = Long.MIN_VALUE
     fun add(time: Long, position: Offset) {
+        // A gap cannot establish recent motion; resume from the new observation.
+        if (samples.lastOrNull()?.let { time - it.first > 80 } == true) samples.clear()
         if (samples.lastOrNull()?.second != position) lastMotion = time
         if (samples.lastOrNull()?.first == time) samples.removeLast()
         samples.addLast(time to position)
@@ -25,17 +27,32 @@ internal class ReleaseVelocity {
     fun velocity(): Offset {
         if (samples.size < 2 || samples.last().first - lastMotion >= 80) return Offset.Zero
         val origin = samples.last().first
-        val meanTime = samples.map { (it.first - origin).toFloat() }.average().toFloat()
-        val meanPosition = samples.fold(Offset.Zero) { sum, it -> sum + it.second } / samples.size.toFloat()
+        val recent = samples.toMutableList()
+        val boundary = origin - 80
+        if (recent.first().first < boundary) {
+            val (a, p) = recent[0]
+            val (b, q) = recent[1]
+            recent[0] = boundary to (p + (q - p) * ((boundary - a).toFloat() / (b - a)))
+        }
+        val meanTime = recent.map { (it.first - origin).toFloat() }.average().toFloat()
+        val meanPosition = recent.fold(Offset.Zero) { sum, it -> sum + it.second } / recent.size.toFloat()
         var numerator = Offset.Zero
         var denominator = 0f
-        for ((time, position) in samples) {
+        for ((time, position) in recent) {
             val t = (time - origin) - meanTime
             numerator += (position - meanPosition) * t
             denominator += t * t
         }
         return if (denominator > 0f) numerator * (1000f / denominator) else Offset.Zero
     }
+}
+
+/** Keep the initial fling on screen, then allow capture at clipped destinations. */
+internal fun releaseLandingBounds(screen: Rect, target: Offset?, progress: Float): Rect {
+    if (target == null) return screen
+    val expanded = Rect(minOf(screen.left, target.x), minOf(screen.top, target.y),
+        maxOf(screen.right, target.x), maxOf(screen.bottom, target.y))
+    return androidx.compose.ui.geometry.lerp(screen, expanded, progress.coerceIn(0f, 1f))
 }
 
 /** Attraction ramps from zero: the finger's motion remains visible before capture begins.

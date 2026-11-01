@@ -452,9 +452,9 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     var appearanceAge by remember(landing) { mutableFloatStateOf(0f) }
     val progress = FastOutSlowInEasing.transform(releaseAppearanceFraction(appearanceAge, captureSeconds))
     val rootSize = state.rootCoords?.size
-    val edge = startSize / 2f
+    val edge = (startSize + (destination.width - startSize) * progress) / 2f
     val limits by rememberUpdatedState(rootSize?.let {
-        Rect(edge, edge, maxOf(edge, it.width - edge), maxOf(edge, it.height - edge))
+        releaseLandingBounds(Rect(edge, edge, maxOf(edge, it.width - edge), maxOf(edge, it.height - edge)), target, progress)
     })
     LaunchedEffect(landing) {
         var previous = withFrameNanos { now ->
