@@ -281,11 +281,10 @@ class FolderDropTargetTest {
                 rule.runOnIdle { assertEquals(1f, state.drag!!.visualAlpha) }
                 val rim = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
                 val lifted = with(rule.density) { (state.iconSize * state.drag!!.visualScale).toPx() }
-                assertTrue(rim.width > lifted + with(rule.density) { 36.dp.toPx() })
-                val anchor = rule.runOnIdle { state.drag!!.anchor }
-                val innerPadding = with(rule.density) { 5.5.dp.toPx() }
-                assertTrue(anchor.x - lifted / 2 >= rim.left + innerPadding)
-                assertTrue(anchor.x + lifted / 2 <= rim.right - innerPadding)
+                assertEquals(lifted + with(rule.density) { LARGE_FOLDER_FRAME_ALLOWANCE.toPx() }, rim.width, 1.1f)
+                val cell = rule.runOnIdle { largeFolderCell(state.folderSurfaceBounds.getValue(1), 4, state.folderInsetPx) }
+                assertEquals(cell.center.x, rim.center.x, 1.1f)
+                assertEquals(cell.center.y, rim.center.y, 1.1f)
                 capture("large-artwork-${artwork.key.pkg}-${if (offset == 0f) "center" else "offset"}")
             }
             fixture(2, true)

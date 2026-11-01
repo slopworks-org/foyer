@@ -192,9 +192,9 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                             { coordinates?.boundsInRoot()?.let { state.showItemMenu(item, it) } }, { state.graph.removeItem(item) })
                     } else Modifier))
                 if (folder.large) {
-                    BoxWithConstraints(Modifier.fillMaxSize().padding(16.dp)) {
+                    BoxWithConstraints(Modifier.fillMaxSize().padding(LARGE_FOLDER_INSET)) {
                         val density = LocalDensity.current
-                        SideEffect { state.folderInsetPx = with(density) { 16.dp.toPx() } }
+                        SideEffect { state.folderInsetPx = with(density) { LARGE_FOLDER_INSET.toPx() } }
                         val rowHeight = maxHeight / 3
                         // Saved slots use absolute left-to-right coordinates in every locale.
                         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -202,7 +202,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                                 items(9, key = { slot -> folder.slotEntries[slot]?.let { "entry:${it.id}" } ?: "empty:$slot" }) { slot ->
                                     val key = folder.normalized().slotEntries[slot]
                                     Box(Modifier.animateItem().height(rowHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        if (key != null) AppIcon(state.appFor(AppContent(key.app))?.icon, iconSize * .65f,
+                                        if (key != null) AppIcon(state.appFor(AppContent(key.app))?.icon, iconSize * LARGE_FOLDER_ICON_SCALE,
                                             (if (interactive) memberModifier(state, item.id, key) else Modifier).graphicsLayer {
                                                 alpha = if (state.folderLanding?.let { it.folderId == item.id && it.entryId == key.id } == true) 0f else 1f
                                             })
@@ -562,7 +562,7 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
                 folderGridIcon(it, memberIndex, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
             }
             else state.memberBounds[from.folderId to from.entryId] ?: state.folderSurfaceBounds[from.folderId]?.let {
-                folderMemberStart(it, fromFolder!!.large, if (fromFolder.large) 9 else fromFolder.apps.size, if (fromFolder.large) fromFolder.entries[memberIndex].slot ?: memberIndex else memberIndex, icon, with(density) { (if (fromFolder.large) 16.dp else 5.dp).toPx() })
+                folderMemberStart(it, fromFolder!!.large, if (fromFolder.large) 9 else fromFolder.apps.size, if (fromFolder.large) fromFolder.entries[memberIndex].slot ?: memberIndex else memberIndex, icon, with(density) { (if (fromFolder.large) LARGE_FOLDER_INSET else 5.dp).toPx() })
             }
         }
         is DragSource.New -> source.origin.let { Rect(it - Offset(icon / 2, icon / 2), Size(icon, icon)) }
@@ -571,7 +571,7 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val end = if (landing.returning) sourceBounds else if (desktopDestination != null) desktopDestination else if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
             folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
         }
-        else if (folder != null && liveSurface != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) 16.dp else 5.dp).toPx() }) else null
+        else if (folder != null && liveSurface != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) LARGE_FOLDER_INSET else 5.dp).toPx() }) else null
     val destination = end ?: surface
     val viewport = if (if (landing.returning) returningMember != null else panel) state.folderContentViewport else null
     val destinationVisible = if (!landing.returning && desktopDestination != null) true else if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible
@@ -707,8 +707,9 @@ internal fun FolderDropOutline(state: LauncherState) {
     } else {
         val surface = state.folderSurfaceBounds[target.folderId] ?: return
         val cell = largeFolderCell(surface, target.slot, state.folderInsetPx)
-        // Leave room for artwork held off-center within the dense slot as well as the rim.
-        val diameter = with(LocalDensity.current) { (state.iconSize * DRAG_ICON_SCALE + 40.dp).toPx() }
+        // The shared primitive insets by 4dp and strokes inward by 1.5dp.
+        // A 14dp allowance leaves only 1.5dp clear around a centered lifted icon.
+        val diameter = with(LocalDensity.current) { (state.iconSize * DRAG_ICON_SCALE + LARGE_FOLDER_FRAME_ALLOWANCE).toPx() }
         largeFolderFeedbackFrame(cell, diameter)
     }
     val left by animateFloatAsState(bounds.left, tween(100), label = "drop-frame-x")

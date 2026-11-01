@@ -3,8 +3,13 @@ package app.foyer.ui
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.dp
 import app.foyer.data.FolderContent
 import app.foyer.data.AppKey
+
+internal val LARGE_FOLDER_INSET = 12.dp
+internal const val LARGE_FOLDER_ICON_SCALE = .70f
+internal val LARGE_FOLDER_FRAME_ALLOWANCE = 14.dp
 
 internal enum class DropLayer { Panel, Dock, Feed }
 
@@ -72,7 +77,7 @@ internal fun <T> folderDragOrder(apps: List<T>, member: T?, index: Int, large: B
 
 /** The closed preview uses the very same coordinates as FolderTile, not the whole feed cell. */
 internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index: Int, icon: Float, inset: Float): Rect {
-    val size = icon * if (large) .65f else .38f
+    val size = icon * if (large) LARGE_FOLDER_ICON_SCALE else .38f
     val normalized = folderPreviewMembers(count, large).find { it.index == index }?.center ?: Offset(.5f, .5f)
     val center = if (large) {
         val padding = inset

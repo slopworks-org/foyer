@@ -53,15 +53,15 @@ frame legible in both themes. Drawing behind the cell preserves icon measurement
 gesture ownership and lazy placement; the panel grid clips the frame while scrolling.
 Large slots use the same continuous rounded frame primitive and tokens. They have
 no fill and draw entirely behind the opaque drag icon, without backing or a second
-outline. Their feedback box is the settled lifted icon diameter (1.12 × icon size) plus 40dp,
-centered on the unchanged slot center. The existing 4dp inset and 1.5dp stroke leave
-14.5dp clear inside the outline on each side of a centered lifted icon, also enclosing the tested 28%-of-cell
-offset without moving the slot center. Feedback
-retargets over 100ms and may overflow the dense slot; hit geometry, final member
-size, landing center and the folder footprint stay fixed. Their radius is one quarter
-of the launcher icon size, matching the smaller cell scale. The shared primitive caps rounding at 40% of the inset
-frame’s shorter side to retain straight edges instead of clamping into a capsule;
-the open panel retains its accepted half-icon radius below that cap. Cell bounds and sparse positions remain unchanged.
+outline. Their feedback box is the settled lifted icon diameter (1.12 × icon size) plus 14dp,
+centered on the selected slot rather than following an off-center finger. After the
+shared 4dp inset and inward 1.5dp stroke, the inner edge clears a centered circular
+icon by 1.5dp per side. Offset artwork can cross the rim; the frame does not grow to
+enclose it. Feedback retargets over 100ms. The radius remains one quarter of the
+launcher icon size, with the shared 40% rounding cap. Large folders keep their 2×2
+footprint and sparse 3×3 slots, with a shared 12dp internal inset and 70%-size
+miniatures across rendering, preview and landing. The lifted icon stays fully opaque
+at its normal 1.12 scale. Small-folder styling and interactions are unchanged.
 The preview's order and occurrence ID come from the same transfer plan as release,
 including fifth-item reflow, duplicate apps, sparse large slots and swaps. Invalid
 plans have no landing frame. Release removes the frame immediately while retaining

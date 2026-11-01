@@ -46,6 +46,14 @@ class LargeFolderGridTest {
                 val last = state.memberBounds.getValue(1L to state.testEntryId(1L, apps[1])).center
                 assertTrue(first.x < surface.center.x)
                 assertTrue(last.x > surface.center.x)
+                assertEquals(with(rule.density) { LARGE_FOLDER_INSET.toPx() }, state.folderInsetPx, .01f)
+                for ((slot, point) in listOf(0 to first, 8 to last)) {
+                    val landing = folderMemberStart(surface, true, 9, slot,
+                        with(rule.density) { state.iconSize.toPx() }, state.folderInsetPx)
+                    assertEquals(point.x, landing.center.x, 1.1f)
+                    assertEquals(point.y, landing.center.y, 1.1f)
+                    assertEquals(slot, largeFolderSlot(landing.center, surface, state.folderInsetPx))
+                }
                 assertEquals(0, largeFolderSlot(first, surface, state.folderInsetPx))
                 assertEquals(8, largeFolderSlot(last, surface, state.folderInsetPx))
                 val emptyTopRight = Offset(last.x, first.y)

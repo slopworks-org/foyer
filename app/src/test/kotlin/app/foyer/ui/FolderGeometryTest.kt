@@ -11,16 +11,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderGeometryTest {
-    @Test fun largeFeedbackOverflowsCellWithoutMovingItsLandingCenter() {
-        val surface = Rect(10f, 20f, 210f, 220f)
+    @Test fun compactLargeFrameSharesInsetHitAndLandingCenters() {
+        val icon = 56f
+        val inset = LARGE_FOLDER_INSET.value
+        val surface = Rect(10f, 20f, 150f, 160f)
+        val diameter = icon * DRAG_ICON_SCALE + LARGE_FOLDER_FRAME_ALLOWANCE.value
         for (slot in 0..8) {
-            val cell = largeFolderCell(surface, slot, 8f)
-            val frame = largeFolderFeedbackFrame(cell, 84f)
+            val cell = largeFolderCell(surface, slot, inset)
+            val frame = largeFolderFeedbackFrame(cell, diameter)
+            val member = folderMemberStart(surface, true, 9, slot, icon, inset)
+            assertEquals((surface.width - 24f) / 3, cell.width, .001f)
             assertEquals(cell.center.x, frame.center.x, .001f)
             assertEquals(cell.center.y, frame.center.y, .001f)
-            assertEquals(84f, frame.width, .001f)
-            assertTrue(frame.width > cell.width)
-            assertEquals(slot, largeFolderSlot(frame.center, surface, 8f))
+            assertEquals(cell.center.x, member.center.x, .001f)
+            assertEquals(cell.center.y, member.center.y, .001f)
+            assertEquals(icon * .70f, member.width, .001f)
+            assertEquals(slot, largeFolderSlot(frame.center, surface, inset))
+            assertEquals(icon * DRAG_ICON_SCALE + 14f, frame.width, .001f)
+            // The primitive's 4dp inset plus inward 1.5dp stroke leaves a restrained gap.
+            assertEquals(1.5f, (frame.width - icon * DRAG_ICON_SCALE) / 2 - 4f - 1.5f, .001f)
+            assertTrue(frame.width < surface.width * .56f)
+            assertTrue(member.width <= cell.width * 1.02f)
         }
     }
 
@@ -173,7 +184,7 @@ class FolderGeometryTest {
         assertTrue(triangle.all { it.width == 38f })
         val large = (0..8).map { folderMemberStart(surface, true, 9, it, 100f, 10f) }
         assertEquals(surface.center, large[4].center)
-        assertEquals(65f, large[4].width)
+        assertEquals(70f, large[4].width)
         assertTrue(large[0].center.x < large[1].center.x && large[1].center.x < large[2].center.x)
         assertTrue(large[0].center.y < large[3].center.y && large[3].center.y < large[6].center.y)
     }
