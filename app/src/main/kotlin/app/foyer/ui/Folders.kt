@@ -632,7 +632,11 @@ internal fun FolderCollapseOverlay(state: LauncherState) {
             LaunchedEffect(collapse) {
                 try {
                     // Measure the replacement before starting; bounds remain live throughout both phases.
-                    while (destination == null) withFrameNanos { }
+                    val measured = kotlinx.coroutines.withTimeoutOrNull(500L) {
+                        while (destination == null) withFrameNanos { }
+                        true
+                    } ?: false
+                    if (!measured) return@LaunchedEffect
                     var previous = 0f
                     collapse.progress.animateTo(1f, tween(340, easing = androidx.compose.animation.core.LinearEasing)) {
                         val end = destination ?: return@animateTo

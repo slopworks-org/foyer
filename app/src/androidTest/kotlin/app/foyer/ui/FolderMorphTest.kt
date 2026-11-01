@@ -22,6 +22,27 @@ import org.junit.Test
 class FolderMorphTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
+    @Test fun missingCollapseDestinationReleasesVisualOwnership() {
+        val graph = rule.activity.graph
+        var state: LauncherState? = null
+        rule.activity.setContent {
+            val scope = rememberCoroutineScope()
+            val current = remember {
+                LauncherState(graph, scope, rule.activity).also {
+                    val key = app.foyer.data.AppKey("missing", "Main", 0)
+                    val item = app.foyer.data.HomeItem(999, FolderContent(listOf(key, key)), 0, 0)
+                    it.folderCollapses[item.id] = FolderCollapse(item, key,
+                        Rect(0f, 0f, 20f, 20f), Rect(0f, 0f, 56f, 56f), false, null)
+                }
+            }
+            state = current
+            // Deliberately omit the replacement tile: it can never supply icon bounds.
+            FolderCollapseOverlay(current)
+        }
+        rule.waitUntil(3000) { state?.folderCollapses?.isEmpty() == true }
+        rule.onAllNodesWithTag("folder-survivor-999").assertCountEquals(0)
+    }
+
     @Test fun cleanupHandsHeldAndReturningSurvivorToOneOwner() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
