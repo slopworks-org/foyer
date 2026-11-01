@@ -141,8 +141,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     // --- overlays ---
     var folderFeedback by mutableStateOf<Int?>(null)
-    var openFolder by mutableStateOf<Long?>(null)
+    private var requestedFolder by mutableStateOf<Long?>(null)
+    var openFolder: Long?
+        get() = requestedFolder?.takeIf { id -> (graph.layout.layout.value.items.find { it.id == id }?.content as? FolderContent)?.large == false }
+        set(value) { requestedFolder = value?.takeIf { id -> (graph.layout.layout.value.items.find { it.id == id }?.content as? FolderContent)?.large == false } }
     val folderBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
+    var folderInsetPx = 0f
     val folderSurfaceBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
     var folderTransitionId by mutableStateOf<Long?>(null)
     var folderGridBounds: androidx.compose.ui.geometry.Rect? = null
@@ -322,6 +326,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             if (item.content is FolderContent) {
                 val folder = item.content
                 add(MenuAction(if (folder.large) R.string.folder_shrink else R.string.folder_enlarge, MenuIcons.Edit) {
+                    openFolder = null
                     graph.layout.edit { current ->
                         val live = current.items.find { it.id == item.id }?.content as? FolderContent
                         if (live == null) current else {
@@ -419,7 +424,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         if (hoverFolder != id) {
             hoverJob?.cancel()
             hoverFolder = id
-            if (id != null && openFolder != id && session.source !is DragSource.Member) hoverJob = scope.launch {
+            if (id != null && (layout.items.find { it.id == id }?.content as? FolderContent)?.large == false && openFolder != id && session.source !is DragSource.Member) hoverJob = scope.launch {
                 kotlinx.coroutines.delay(550)
                 if (drag === session) openFolder = id
             }
@@ -502,11 +507,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             DropLayer.Feed -> Unit
         }
         if (s.content is AppContent) {
-            memberBounds.entries.firstOrNull { (entry, bounds) ->
-                (layout.items.find { it.id == entry.first }?.content as? FolderContent)?.large == true && bounds.contains(p)
-            }?.let { (entry, _) ->
-                val folder = layout.items.find { it.id == entry.first }?.content as? FolderContent
-                return DropTarget.Folder(entry.first, folder?.apps?.indexOf(entry.second) ?: 0)
+            folderSurfaceBounds.entries.firstOrNull { (id, bounds) ->
+                (layout.items.find { it.id == id }?.content as? FolderContent)?.large == true && bounds.contains(p)
+            }?.let { (id, bounds) ->
+                // The outer gutter is a default add target; the inner grid addresses exact slots.
+                return if (bounds.deflate(folderInsetPx).contains(p))
+                    DropTarget.Folder(id, largeFolderSlot(p, bounds, folderInsetPx)) else DropTarget.Folder(id)
             }
             folderBounds.entries.firstOrNull { (id, bounds) -> id != s.placedId && bounds.contains(p) }?.let {
                 return DropTarget.Folder(it.key)
@@ -540,8 +546,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: 0,
                 (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock)
             val unchangedMember = member != null && t is DropTarget.Folder && member.folderId == t.id &&
-                (l.items.find { it.id == t.id }?.content as? FolderContent)?.apps?.let { apps ->
-                    key in apps && folderDragOrder(apps, key, t.index) == apps
+                (l.items.find { it.id == t.id }?.content as? FolderContent)?.let { folder ->
+                    !folder.large && key in folder.apps && folderDragOrder(folder.apps, key, t.index) == folder.apps
                 } == true
             return if (result === l && !unchangedMember) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
         }
@@ -588,7 +594,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun renameFolder(id: Long, name: String) = graph.layout.edit { current ->
         val folder = current.items.find { it.id == id }?.content as? FolderContent
-        if (folder == null) current else Edits.folder(current, id, folder.copy(name = name))
+        if (folder == null || folder.large) current else Edits.folder(current, id, folder.copy(name = name))
     }
 
     // --- widgets ---

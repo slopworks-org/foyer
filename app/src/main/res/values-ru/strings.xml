@@ -49,4 +49,5 @@
     <string name="folder_earlier">Переместить раньше</string>
     <string name="folder_later">Переместить позже</string>
     <string name="folder_move_to">Переместить в %1$s</string>
+    <string name="folder_actions">Действия с папкой</string>
 </resources>

@@ -9,6 +9,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderSemanticsTest {
+    @Test fun largeFolderHasMenuButNoOpenAction() {
+        var menu = false
+        val semantics = SemanticsConfiguration().apply {
+            folderActions("Remove", null, { menu = true }, {})
+        }
+        assertFalse(semantics.contains(SemanticsActions.OnClick))
+        assertTrue(semantics[SemanticsActions.OnLongClick].action!!.invoke())
+        assertTrue(menu)
+    }
+
     @Test fun semanticLongPressOpensMenuAndRemoveDeletesFolder() {
         var layout = Edits.add(HomeLayout(), FolderContent(), 0, 0)
         val id = layout.items.single().id

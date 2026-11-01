@@ -74,7 +74,7 @@ internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index:
     val size = icon * if (large) .65f else .38f
     val normalized = folderPreviewMembers(count, large).find { it.index == index }?.center ?: Offset(.5f, .5f)
     val center = if (large) {
-        val padding = inset * 1.6f
+        val padding = inset
         Offset(surface.left + padding + (surface.width - 2 * padding) * normalized.x,
             surface.top + padding + (surface.height - 2 * padding) * normalized.y)
     } else {
@@ -119,4 +119,12 @@ internal fun folderContentClip(panel: Rect, grid: Rect, expansion: Float): Rect 
 internal fun folderLandingClip(frame: Rect, viewport: Rect, progress: Float): Rect {
     val visible = if (frame.overlaps(viewport)) frame.intersect(viewport) else Rect(frame.center, Size.Zero)
     return androidx.compose.ui.geometry.lerp(frame, visible, ((progress - .65f) / .35f).coerceIn(0f, 1f))
+}
+
+/** Absolute large-folder cells share the rendered grid's inset and never compress holes. */
+internal fun largeFolderSlot(point: Offset, surface: Rect, inset: Float): Int {
+    val grid = surface.deflate(inset)
+    val column = ((point.x - grid.left) / (grid.width / 3)).toInt().coerceIn(0, 2)
+    val row = ((point.y - grid.top) / (grid.height / 3)).toInt().coerceIn(0, 2)
+    return row * 3 + column
 }
