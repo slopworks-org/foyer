@@ -170,6 +170,7 @@ class LargeFolderGridTest {
                 rule.mainClock.advanceTimeBy(16)
                 rule.onRoot().performTouchInput { moveTo(to, 250); up() }
                 rule.mainClock.autoAdvance = true
+                rule.waitUntil(10000) { state.drag == null && state.folderLanding == null }
                 rule.waitForIdle()
             }
             touchDrag(source, empty)
