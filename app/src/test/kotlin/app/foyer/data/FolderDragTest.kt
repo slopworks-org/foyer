@@ -5,7 +5,7 @@ import org.junit.Test
 
 class FolderDragTest {
     private fun key(n: Int, user: Long = 0) = AppKey("pkg$n", "Main", user)
-    private fun base(large: Boolean = false, apps: List<AppKey> = emptyList()) =
+    private fun base(large: Boolean = false, apps: List<AppKey> = listOf(key(0))) =
         Edits.add(HomeLayout(), FolderContent(apps, large), 0, 0)
     private fun members(l: HomeLayout, id: Long = 1) = (l.items.first { it.id == id }.content as FolderContent).apps
 
@@ -20,7 +20,7 @@ class FolderDragTest {
             val other = Edits.add(base(apps = four), FolderContent(listOf(key(5))), 3, 0)
             val moved = Edits.transferApp(other, key(5), sourceFolder = 2, targetFolder = 1, index = index)
             assertEquals(expected, members(moved))
-            assertTrue(members(moved, 2).isEmpty())
+            assertFalse(moved.items.any { it.id == 2L })
         }
         val explicit = Edits.transferApp(base(apps = four), key(5), targetFolder = 1, index = 1)
         assertEquals(listOf(key(1), key(5), key(2), key(3), key(4)), members(explicit))
@@ -37,15 +37,15 @@ class FolderDragTest {
     @Test fun desktopMovesSearchAddsAndProfilesRemainDistinct() {
         val initial = Edits.add(base(), AppContent(key(1)), 3, 0)
         val moved = Edits.transferApp(initial, key(1), sourceItem = 2, targetFolder = 1)
-        assertEquals(listOf(key(1)), members(moved))
+        assertEquals(listOf(key(0), key(1)), members(moved))
         assertEquals(listOf(1L), moved.items.map { it.id })
         val added = Edits.transferApp(moved, key(1, 10), targetFolder = 1)
-        assertEquals(listOf(key(1), key(1, 10)), members(added))
+        assertEquals(listOf(key(0), key(1), key(1, 10)), members(added))
         assertEquals(initial.nextId, added.nextId)
     }
 
     @Test fun reorderAndTransferBetweenFolders() {
-        val initial = Edits.add(base(apps = listOf(key(1), key(2), key(3))), FolderContent(), 3, 0)
+        val initial = Edits.add(base(apps = listOf(key(1), key(2), key(3))), FolderContent(listOf(key(0))), 3, 0)
         val ordered = Edits.transferApp(initial, key(3), sourceFolder = 1, targetFolder = 1, index = 0)
         assertEquals(listOf(key(3), key(1), key(2)), members(ordered))
         val downward = Edits.transferApp(initial, key(1), sourceFolder = 1, targetFolder = 1, index = 2)
@@ -54,7 +54,7 @@ class FolderDragTest {
         assertEquals(listOf(key(2), key(3), key(1)), members(appended))
         val moved = Edits.transferApp(ordered, key(1), sourceFolder = 1, targetFolder = 2)
         assertEquals(listOf(key(3), key(2)), members(moved))
-        assertEquals(listOf(key(1)), members(moved, 2))
+        assertEquals(listOf(key(0), key(1)), members(moved, 2))
         assertEquals(initial.items.map { Triple(it.id, it.x, it.y) }, moved.items.map { Triple(it.id, it.x, it.y) })
     }
 
@@ -63,7 +63,7 @@ class FolderDragTest {
         assertSame(initial, Edits.transferApp(initial, key(1), sourceFolder = 1, x = 0, y = 0))
         for (dock in listOf(false, true)) {
             val moved = Edits.transferApp(initial, key(1), sourceFolder = 1, x = 3, y = 0, dock = dock)
-            assertTrue(members(moved).isEmpty())
+            assertFalse(moved.items.any { it.id == 1L })
             assertEquals(HomeItem(2, AppContent(key(1)), 3, 0, dock = dock), moved.items.last())
         }
     }

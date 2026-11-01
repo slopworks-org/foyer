@@ -174,7 +174,7 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
     val layout: StateFlow<HomeLayout> = _layout.asStateFlow()
 
     private fun load(): HomeLayout = try {
-        if (!file.baseFile.exists()) HomeLayout() else {
+        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) HomeLayout() else {
             val raw = file.readFully().decodeToString()
             val normalized = Edits.normalizeFolders(json.decodeFromString<HomeLayout>(raw))
             // Also persist repaired or decoder-generated IDs in canonical files.
@@ -192,7 +192,9 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
     fun edit(transform: (HomeLayout) -> HomeLayout) {
         _layout.update(transform)
         val snapshot = _layout.value
-        scope.launch(Dispatchers.IO) { save(snapshot) }
+        scope.launch(Dispatchers.IO) {
+            runCatching { save(snapshot) }.onFailure { android.util.Log.e("Foyer", "Could not save home layout", it) }
+        }
     }
 
     @Synchronized
@@ -208,14 +210,16 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
             file.finishWrite(out)
         } catch (e: Exception) {
             file.failWrite(out)
+            throw e
         }
     }
 }
 
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
-    fun normalizeFolders(l: HomeLayout): HomeLayout = l.copy(items = l.items.map { item ->
-        val folder = item.content as? FolderContent ?: return@map item
+    fun normalizeFolders(l: HomeLayout): HomeLayout = l.copy(items = l.items.mapNotNull { item ->
+        val folder = item.content as? FolderContent ?: return@mapNotNull item
+        if (folder.entries.isEmpty()) return@mapNotNull null
         val normalized = folder.normalized()
         // A legacy oversized folder becomes small; its old footprint can safely be released.
         item.copy(content = normalized, w = if (normalized.large) 2 else 1, h = if (normalized.large) 2 else 1)
@@ -224,7 +228,7 @@ object Edits {
     fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout {
         val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
         val height = if (content is FolderContent) span else h
-        if (content is FolderContent && (dock || content.entries.map { it.id }.distinct().size != content.entries.size || content.large && content.apps.size > 9)) return l
+        if (content is FolderContent && (dock || content.entries.isEmpty() || content.entries.map { it.id }.distinct().size != content.entries.size || content.large && content.apps.size > 9)) return l
         if (dock) { if (!l.dockSlotFree(x)) return l } else if (!l.isFree(x, y, span, height)) return l
         return l.copy(items = l.items + HomeItem(l.nextId, if (content is FolderContent) content.normalized() else content, x, y, span, height, dock), nextId = l.nextId + 1)
     }
@@ -255,6 +259,7 @@ object Edits {
     /** Reject invalid edits atomically: membership and occupied cells never change on failure. */
     fun folder(l: HomeLayout, id: Long, folder: FolderContent): HomeLayout {
         val item = l.items.find { it.id == id && it.content is FolderContent && !it.dock } ?: return l
+        if (folder.entries.isEmpty()) return remove(l, id)
         val span = if (folder.large) 2 else 1
         if (folder.entries.map { it.id }.distinct().size != folder.entries.size || folder.large && folder.apps.size > 9 ||
             !l.isFree(item.x, item.y, span, span, id)) return l
@@ -339,16 +344,16 @@ object Edits {
     }
 
     fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(
-        items = l.items.map { item ->
+        items = l.items.mapNotNull { item ->
             val folder = item.content as? FolderContent
-            if (folder == null) item else item.copy(content = folder.without(missing))
+            if (folder == null) item else folder.without(missing).takeIf { it.entries.isNotEmpty() }?.let { item.copy(content = it) }
         },
     )
 
     fun forgetProfiles(l: HomeLayout, users: Set<Long>): HomeLayout = l.copy(
-        items = l.items.map { item ->
+        items = l.items.mapNotNull { item ->
             val c = item.content
-            if (c is FolderContent) item.copy(content = c.without(c.apps.filter { it.user in users }.toSet())) else item
+            if (c is FolderContent) c.without(c.apps.filter { it.user in users }.toSet()).takeIf { it.entries.isNotEmpty() }?.let { item.copy(content = it) } else item
         },
     )
 
@@ -358,7 +363,7 @@ object Edits {
                 is AppContent -> item.takeUnless { c.app.pkg == pkg && c.app.user == user }
                 is ShortcutContent -> item.takeUnless { c.pkg == pkg && c.user == user }
                 is WidgetContent -> item.takeUnless { c.provider.startsWith("$pkg/") }
-                is FolderContent -> item.copy(content = c.without(c.apps.filter { it.pkg == pkg && it.user == user }.toSet()))
+                is FolderContent -> c.without(c.apps.filter { it.pkg == pkg && it.user == user }.toSet()).takeIf { it.entries.isNotEmpty() }?.let { item.copy(content = it) }
             }
         },
         aliases = l.aliases.filterKeys { !it.startsWith("$user/$pkg/") },

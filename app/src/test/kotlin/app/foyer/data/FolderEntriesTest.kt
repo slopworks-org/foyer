@@ -47,10 +47,11 @@ class FolderEntriesTest {
         assertNull(folder(hole).slotEntries[1])
         val small = Edits.folder(hole, 1, folder(hole).copy(large = false))
         assertEquals(listOf(b.id, c.id, a.id), folder(small).entries.map { it.id })
-        val two = Edits.add(small, FolderContent(), 3, 0)
+        val destination = FolderEntry(other)
+        val two = Edits.add(small, FolderContent(entries = listOf(destination)), 3, 0)
         val moved = Edits.transferApp(two, app, sourceFolder = 1, sourceEntry = b.id, targetFolder = 2)
         assertEquals(listOf(c.id, a.id), folder(moved).entries.map { it.id })
-        assertEquals(b.id, folder(moved, 2).entries.single().id)
+        assertEquals(listOf(destination.id, b.id), folder(moved, 2).entries.map { it.id })
         assertEquals(moved, json.decodeFromString<HomeLayout>(json.encodeToString(HomeLayout.serializer(), moved)))
         assertEquals(listOf(c.id), folder(Edits.forgetPackage(moved, app.pkg, app.user)).entries.map { it.id })
         val stale = Edits.folder(two, 1, folder(two).withoutEntry(b.id))
@@ -68,9 +69,7 @@ class FolderEntriesTest {
         val restored = json.decodeFromString<HomeLayout>(json.encodeToString(HomeLayout.serializer(), large))
         assertEquals(listOf(c.id, b.id), folder(restored, 2).entries.map { it.id })
         val cleaned = Edits.forgetProfiles(restored, setOf(app.user))
-        assertTrue(folder(cleaned).entries.isEmpty())
-        assertTrue(folder(cleaned, 2).entries.isEmpty())
-        assertTrue(folder(cleaned, 2).slots.all { it == null })
+        assertTrue(cleaned.items.isEmpty())
     }
 
     @Test fun nineDuplicateEntriesFillCapacityAndRejectWithoutConsumingSource() {

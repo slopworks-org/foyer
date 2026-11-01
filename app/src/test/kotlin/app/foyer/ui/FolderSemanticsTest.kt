@@ -20,7 +20,7 @@ class FolderSemanticsTest {
     }
 
     @Test fun semanticLongPressOpensMenuAndRemoveDeletesFolder() {
-        var layout = Edits.add(HomeLayout(), FolderContent(), 0, 0)
+        var layout = Edits.add(HomeLayout(), FolderContent(listOf(app.foyer.data.AppKey("pkg", "Main", 0))), 0, 0)
         val id = layout.items.single().id
         var opened = false
         var menu = false
