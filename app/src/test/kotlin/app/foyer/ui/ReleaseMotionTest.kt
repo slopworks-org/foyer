@@ -7,8 +7,9 @@ import org.junit.Test
 class ReleaseMotionTest {
     @Test fun captureRampIsShortEvenForFastFlings() {
         for (speed in listOf(0f, 100f, 500f, 1000f, 1800f)) {
-            assertTrue(releaseCaptureSeconds(speed, 100f) in .04f.. .10f)
-            assertTrue(releaseSettlingFrequency(speed, 100f) >= 24f)
+            assertTrue(releaseCaptureSeconds(speed, 100f) in .03f.. .075f)
+            assertTrue(releaseSettlingFrequency(speed, 100f) >= 32f)
+            assertTrue(releaseAppearanceSeconds(speed, 100f) in .20f.. .24001f)
         }
     }
 
@@ -116,7 +117,7 @@ class ReleaseMotionTest {
         val capture = releaseCaptureSeconds(1000f, 100f)
         assertEquals(0f, releaseAppearanceFraction(.032f, capture), 0f)
         assertEquals(0f, releaseAppearanceFraction(capture, capture), 0f)
-        assertEquals(1f, releaseAppearanceFraction(capture + .32f, capture), .0001f)
+        assertEquals(1f, releaseAppearanceFraction(capture + .24f, capture), .0001f)
     }
     @Test fun ordinaryLandingSettlesInDesignedIntervalAndDelayRetainsCurrentMotion() {
         val icon = 100f
@@ -133,8 +134,8 @@ class ReleaseMotionTest {
                 if (elapsed >= capture + releaseAppearanceSeconds(speed, icon) && (motion.position - target).getDistance() < .75f && motion.velocity.getDistance() < 15f) break
             }
             println("Landing speed=$speed px/s, duration=${elapsed * 1000} ms")
-            if (speed <= 200f) assertTrue("ordinary landing: $elapsed", elapsed in .28f.. .42f)
-            else assertTrue("fast landing captures promptly: $elapsed", elapsed < .55f)
+            if (speed <= 200f) assertTrue("ordinary landing: $elapsed", elapsed in .20f.. .33f)
+            else assertTrue("fast landing captures promptly: $elapsed", elapsed < .42f)
         }
         var motion = ReleaseMotion(Offset.Zero, Offset(1000f, 0f))
         repeat(30) { motion = motion.step(null, .016f) }
