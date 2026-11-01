@@ -191,7 +191,7 @@ class FolderMorphTest {
         }
     }
 
-    @Test fun removingLastMemberClearsPanelOwnershipAndKeepsSingletonUntouched() {
+    @Test fun removingOneOfTwoCollapsesAndClearsPanelOwnership() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
         lateinit var state: LauncherState
@@ -199,7 +199,7 @@ class FolderMorphTest {
         val key = graph.apps.apps.value.first().key
         try {
             rule.runOnUiThread {
-                graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(key), name = "Keep"), 2, 3) }
+                graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(key, key), name = "Keep"), 2, 3) }
             }
             val singleton = graph.layout.layout.value.items.single()
             rule.activity.setContent {
@@ -212,10 +212,10 @@ class FolderMorphTest {
             rule.runOnUiThread { state.openFolder = singleton.id }
             rule.waitUntil { state.folderPanelBounds != null }
             assertEquals(singleton, graph.layout.layout.value.items.single())
-            rule.runOnUiThread { graph.layout.edit { Edits.folder(it, singleton.id, FolderContent()) } }
+            rule.runOnUiThread { graph.layout.edit { Edits.folder(it, singleton.id, (it.items.single().content as FolderContent).let { folder -> folder.withoutEntry(folder.entries.first().id) }) } }
             rule.waitUntil { state.openFolder == null && state.folderTransitionId == null && state.folderPanelBounds == null }
             rule.runOnUiThread {
-                assertTrue(graph.layout.layout.value.items.isEmpty())
+                assertEquals(AppContent(key), graph.layout.layout.value.items.single().content)
                 assertFalse(state.folderBounds.containsKey(singleton.id))
                 assertFalse(state.folderSurfaceBounds.containsKey(singleton.id))
             }

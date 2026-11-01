@@ -46,7 +46,7 @@ class FolderEntriesRestartTest {
             waitFor { graph.apps.apps.value.isNotEmpty() }
             val key = json.encodeToString(AppKey.serializer(), graph.apps.apps.value.first().key)
             // Exercise the same legacy decoder without writing home.json directly.
-            val old = """{"seeded":true,"nextId":2,"items":[{"id":1,"x":1,"y":1,"w":2,"h":2,"content":{"type":"folder","large":true,"apps":[$key,$key],"slots":[$key,null,null,null,null,null,null,null,$key]}},{"id":99,"x":4,"y":10,"content":{"type":"folder","apps":[]}}]}"""
+            val old = """{"seeded":true,"nextId":2,"items":[{"id":1,"x":1,"y":1,"w":2,"h":2,"content":{"type":"folder","large":true,"apps":[$key,$key],"slots":[$key,null,null,null,null,null,null,null,$key]}},{"id":98,"x":3,"y":10,"content":{"type":"folder","apps":[$key]}},{"id":99,"x":4,"y":10,"content":{"type":"folder","apps":[]}}]}"""
             val migrated = Edits.normalizeFolders(json.decodeFromString<HomeLayout>(old))
             graph.layout.edit { migrated }
             awaitPersisted(activity, migrated)
@@ -64,11 +64,13 @@ class FolderEntriesRestartTest {
             try {
                 val expected = json.decodeFromString<HomeLayout>(File(directory, "restart-expected.json").readText())
                 assertEquals(expected, activity.graph.layout.layout.value)
-                val folder = expected.items.single().content as FolderContent
+                val folder = expected.items.first { it.id == 1L }.content as FolderContent
+                assertTrue((expected.items.first { it.id == 99L }.content as FolderContent).entries.isEmpty())
                 assertEquals(listOf(0, 8), folder.entries.map { it.slot })
+                assertTrue(expected.items.first { it.id == 98L }.content is AppContent)
                 assertEquals(100L, expected.nextId)
                 assertEquals(2, folder.entries.map { it.id }.distinct().size)
-                File(directory, "restart-verified.txt").writeText("Process restart retained migrated duplicate IDs, sparse slots 0 and 8, removed empty folder 99, and nextId 100.\n")
+                File(directory, "restart-verified.txt").writeText("Process restart retained migrated duplicate IDs, sparse slots 0 and 8, retained empty folder 99, collapsed legacy singleton 98, and nextId 100.\n")
             } finally {
                 activity.graph.layout.edit { original }
                 awaitPersisted(activity, original)

@@ -172,11 +172,11 @@ class LargeFolderGridTest {
             assertEquals(apps[5], folder().slots[4])
             assertEquals(apps[4], folder().slots[5])
             shot("touch-occupied-slot-swap")
-            rule.runOnIdle { graph.layout.edit { Edits.add(it, FolderContent(listOf(apps[9])), 3, 4) } }
+            rule.runOnIdle { graph.layout.edit { Edits.add(it, FolderContent(listOf(apps[9], apps[10])), 3, 4) } }
             rule.waitForIdle()
             touchDrag(state.memberBounds.getValue(1L to state.testEntryId(1L, apps[3])).center, state.folderBounds.getValue(2).center)
             assertNull(folder().slots[3])
-            assertEquals(listOf(apps[9], apps[3]), (graph.layout.layout.value.items.last().content as FolderContent).apps)
+            assertEquals(listOf(apps[9], apps[10], apps[3]), (graph.layout.layout.value.items.last().content as FolderContent).apps)
             shot("touch-large-to-small")
             rule.runOnIdle { state.openFolder = 2 }
             rule.waitForIdle()
@@ -184,7 +184,7 @@ class LargeFolderGridTest {
                 surface.top + state.folderInsetPx + (surface.height - 2 * state.folderInsetPx) * 5 / 6)
             touchDrag(state.panelMemberBounds.getValue(2L to state.testEntryId(2L, apps[3])).center, destination)
             assertEquals(apps[3], folder().slots[6])
-            assertEquals(listOf(apps[9]), (graph.layout.layout.value.items.last().content as FolderContent).apps)
+            assertEquals(listOf(apps[9], apps[10]), (graph.layout.layout.value.items.last().content as FolderContent).apps)
             shot("touch-small-to-large")
             val expected = folder().slots
             assertNull(expected[2]); assertNull(expected[3])

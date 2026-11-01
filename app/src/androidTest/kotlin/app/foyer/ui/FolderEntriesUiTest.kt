@@ -183,11 +183,11 @@ class FolderEntriesUiTest {
             rule.onRoot().performTouchInput { longClick(state.panelMemberBounds.getValue(1L to b.id).center) }
             rule.onNodeWithText(rule.activity.getString(R.string.action_remove)).performClick()
             rule.waitForIdle()
-            assertEquals(a.id, folder().entries.single().id)
+            assertEquals(AppContent(app), graph.layout.layout.value.items.first().content)
             shot("11-small-one-copy-removed")
             rule.runOnIdle {
                 state.openFolder = null
-                graph.layout.edit { Edits.folder(it, 1, FolderContent(entries = listOf(a.copy(slot = 0), b.copy(slot = 8)), large = true)) }
+                graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(entries = listOf(a.copy(slot = 0), b.copy(slot = 8)), large = true), 0, 0) }
             }
             rule.waitForIdle()
             // Mode conversion packs by design. Moving the second copy addresses its stable ID.
@@ -201,8 +201,8 @@ class FolderEntriesUiTest {
             rule.onRoot().performTouchInput { longClick(state.memberBounds.getValue(1L to a.id).center) }
             rule.onNodeWithText(rule.activity.getString(R.string.action_remove)).performClick()
             rule.waitForIdle()
-            assertEquals(b.id, folder().entries.single().id)
-            assertNull(folder().slotEntries[0]); assertEquals(b.id, folder().slotEntries[8]?.id)
+            assertEquals(AppContent(app), graph.layout.layout.value.items.first().content)
+            assertEquals(1, graph.layout.layout.value.items.first().w)
             shot("13-large-one-copy-removed-hole-retained")
             // Equivalent accessible creation is attached to apps, without a dedicated create UI.
             rule.runOnIdle { graph.layout.edit { Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app), 0, 0), AppContent(app), 2, 2) } }

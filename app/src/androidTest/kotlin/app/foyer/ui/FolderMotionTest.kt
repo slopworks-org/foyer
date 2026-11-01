@@ -145,7 +145,7 @@ class FolderMotionTest {
             val key = apps[count]
             rule.runOnIdle {
                 state.graph.layout.edit {
-                    var next = Edits.add(it, if (case == "member-transfer") FolderContent(listOf(key), name = "Source") else AppContent(key), 0, 0)
+                    var next = Edits.add(it, if (case == "member-transfer") FolderContent(listOf(key, apps[0]), name = "Source") else AppContent(key), 0, 0)
                     if (case == "fast-large") {
                         val folder = next.items.first().content as FolderContent
                         next = Edits.folder(next, folderId, folder.copy(large = true))
@@ -317,7 +317,9 @@ class FolderMotionTest {
             }
             rule.waitUntil(5_000) {
                 rule.mainClock.advanceTimeBy(16)
-                (state.graph.layout.layout.value.items.first().content as FolderContent).apps.size == count + 1
+                state.graph.layout.layout.value.items.first().content.let { content ->
+                        if (count == 0) content == AppContent(apps[0]) else (content as? FolderContent)?.apps?.size == count + 1
+                    }
             }
             for (frame in 0..24) {
                 rule.mainClock.advanceTimeBy(16)
@@ -417,7 +419,7 @@ class FolderMotionTest {
     }
 
     @Test fun landingAcrossPreviewCounts() {
-        for (count in listOf(1, 2, 3, 4, 5, 8, 9, 10)) {
+        for (count in listOf(0, 2, 3, 4, 5, 8, 9, 10)) {
             for (large in listOf(false, true)) {
                 if (large && count >= 9) continue
                 seed(count, 2, 3)
@@ -442,12 +444,14 @@ class FolderMotionTest {
                 // The drop validates app availability asynchronously.
                 rule.waitUntil(5_000) {
                     rule.mainClock.advanceTimeBy(16)
-                    (state.graph.layout.layout.value.items.first().content as FolderContent).apps.size == count + 1
+                    state.graph.layout.layout.value.items.first().content.let { content ->
+                        if (count == 0) content == AppContent(apps[0]) else (content as? FolderContent)?.apps?.size == count + 1
+                    }
                 }
                 rule.runOnUiThread {
                     val landing = state.folderLanding!!
-                    val bounds = state.folderBounds[folderId]!!
-                    assertEquals(Offset(bounds.right - 8, bounds.bottom - 8), landing.origin)
+                    val bounds = state.folderBounds[folderId]
+                    if (bounds != null) assertEquals(Offset(bounds.right - 8, bounds.bottom - 8), landing.origin)
                     assertEquals(1.12f, landing.scale)
                 }
                 for (frame in 0..22) {
@@ -459,7 +463,8 @@ class FolderMotionTest {
                 rule.waitForIdle()
                 rule.runOnIdle {
                     assertNull(state.folderLanding)
-                    assertEquals(if (!large && count == 4) listOf(apps[0], apps[1], apps[4], apps[2], apps[3]) else apps.take(count + 1), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+                    if (count == 0) assertEquals(AppContent(apps[0]), state.graph.layout.layout.value.items.first().content)
+                    else assertEquals(if (!large && count == 4) listOf(apps[0], apps[1], apps[4], apps[2], apps[3]) else apps.take(count + 1), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
                 }
             }
         }
@@ -473,9 +478,9 @@ class FolderMotionTest {
             if (source < 2) rule.runOnIdle {
                 state.graph.layout.edit { current ->
                     val result = Edits.add(current, if (source == 0) AppContent(key)
-                        else FolderContent(listOf(key), name = "Source"), 0, 0)
+                        else FolderContent(listOf(key, apps[0]), name = "Source"), 0, 0)
                     dragSource = if (source == 0) DragSource.Placed(result.items.last())
-                        else DragSource.Member(result.items.last().id, key, (result.items.last().content as FolderContent).entries.single().id)
+                        else DragSource.Member(result.items.last().id, key, (result.items.last().content as FolderContent).entries.first().id)
                     result
                 }
             }

@@ -123,7 +123,7 @@ class FolderEntriesRealTest {
                 }
                 begin(start); approach(destination); release()
                 main {
-                    assertEquals(first.id, folder().entries.single().id)
+                    assertEquals(AppContent(first.app), activity.graph.layout.layout.value.items.first { it.id == 1L }.content)
                     assertTrue(activity.graph.layout.layout.value.items.any { it.content == AppContent(second.app) })
                 }
                 shot("05-second-copy-moved-out")
@@ -169,7 +169,7 @@ class FolderEntriesRealTest {
                 begin(start); approach(destination); waitFor("member merge ready") { state.mergeReady == 1L }; release()
                 main {
                     assertEquals(second.id, folder().entries[1].id)
-                    assertEquals(first.id, folder(2).entries.single().id)
+                    assertEquals(AppContent(first.app), activity.graph.layout.layout.value.items.first { it.id == 2L }.content)
                 }
                 shot("05c-member-copy-moved-to-new-folder")
                 report.append("Actual member-to-app gesture moves only the captured duplicate ID and preserves its sibling.\n")

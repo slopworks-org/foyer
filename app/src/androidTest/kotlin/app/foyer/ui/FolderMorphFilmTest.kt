@@ -163,42 +163,42 @@ class FolderMorphFilmTest {
                 main { rtl = true; light = true }
                 reset("09 RTL same app", same = true)
                 begin(); approach(target()); waitFor("RTL armed") { state.mergeReady == 1L }; SystemClock.sleep(250); release()
-                main { rtl = false; label = "10 last member removal panel cleanup"; state.graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(apps[0]), name = "Singleton"), 2, 3) } }
+                main { rtl = false; label = "10 singleton replacement panel cleanup"; state.graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(apps[0], apps[1]), name = "Tools"), 2, 3) } }
                 SystemClock.sleep(600)
                 main { state.openFolder = 1 }; SystemClock.sleep(700)
-                main { assertEquals(1, (state.graph.layout.layout.value.items.single().content as FolderContent).apps.size) }
+                main { assertEquals(2, (state.graph.layout.layout.value.items.single().content as FolderContent).apps.size) }
                 SystemClock.sleep(500)
                 main {
-                    val entry = (state.graph.layout.layout.value.items.single().content as FolderContent).entries.single()
+                    val entry = (state.graph.layout.layout.value.items.single().content as FolderContent).entries.first()
                     state.showMemberMenu(1, entry, state.panelMemberBounds.getValue(1L to entry.id))
                 }
                 SystemClock.sleep(600)
                 main { state.menu!!.actions.single { it.label == app.foyer.R.string.action_remove }.onClick() }
-                waitFor("empty panel cleaned") { state.graph.layout.layout.value.items.isEmpty() && state.openFolder == null && state.folderPanelBounds == null && state.menu == null }
+                waitFor("empty panel cleaned") { state.graph.layout.layout.value.items.single().content is AppContent && state.openFolder == null && state.folderPanelBounds == null && state.menu == null }
                 SystemClock.sleep(900)
                 main {
-                    label = "11 last member move to feed"; light = false
-                    state.graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(apps[0])), 0, 1) }
+                    label = "11 two-to-one move to feed"; light = false
+                    state.graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(apps[0], apps[1])), 0, 1) }
                 }
                 SystemClock.sleep(550); main { state.openFolder = 1 }; SystemClock.sleep(550)
                 var member = Offset.Zero
-                main { member = state.panelMemberBounds.values.single().center }
+                main { member = state.panelMemberBounds.values.first().center }
                 send(MotionEvent.ACTION_DOWN, member); SystemClock.sleep(620)
                 send(MotionEvent.ACTION_MOVE, member + Offset(30f, 30f)); SystemClock.sleep(50)
                 var empty = Offset.Zero
                 main { empty = state.gridCoords!!.localToRoot(Offset(state.cellW * 4.5f, state.cellH * 5.5f)) }
                 approach(empty); release()
-                main { assertTrue(state.graph.layout.layout.value.items.single().content is AppContent); assertNull(state.openFolder) }
+                main { assertEquals(2, state.graph.layout.layout.value.items.count { it.content is AppContent }); assertNull(state.openFolder) }
                 main {
-                    label = "12 last member merge removes source"
-                    state.graph.layout.edit { Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(apps[1]), 2, 4), FolderContent(listOf(apps[0])), 0, 1) }
+                    label = "12 two-to-one source merge"
+                    state.graph.layout.edit { Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(apps[1]), 2, 4), FolderContent(listOf(apps[0], apps[1])), 0, 1) }
                 }
                 SystemClock.sleep(550); main { state.openFolder = 2 }; SystemClock.sleep(550)
-                main { member = state.panelMemberBounds.values.single().center }
+                main { member = state.panelMemberBounds.values.first().center }
                 send(MotionEvent.ACTION_DOWN, member); SystemClock.sleep(620)
                 send(MotionEvent.ACTION_MOVE, member + Offset(30f, 30f)); SystemClock.sleep(50)
                 approach(target()); waitFor("member armed") { state.mergeReady == 1L }; SystemClock.sleep(200); release()
-                main { assertEquals(1L, state.graph.layout.layout.value.items.single().id); assertEquals(2, (state.graph.layout.layout.value.items.single().content as FolderContent).entries.size); assertNull(state.openFolder) }
+                main { assertEquals(2, state.graph.layout.layout.value.items.size); assertEquals(2, (state.graph.layout.layout.value.items.first { it.id == 1L }.content as FolderContent).entries.size); assertNull(state.openFolder) }
                 SystemClock.sleep(800)
             } finally {
                 main {
