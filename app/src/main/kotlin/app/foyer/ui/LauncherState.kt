@@ -81,7 +81,7 @@ internal class MergePreview(val target: HomeItem, val bounds: androidx.compose.u
 
 internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.AppKey,
     val icon: Icon?, val origin: Offset, val scale: Float, val velocity: Offset = Offset.Zero,
-    val releasedNanos: Long = System.nanoTime()) {
+    val releasedNanos: Long = System.nanoTime(), val initialAlpha: Float = 1f) {
     var entryId by mutableStateOf<String?>(null)
     var validated by mutableStateOf(false)
     var returning by mutableStateOf(false)
@@ -97,6 +97,7 @@ class DragSession(
     pointer: Offset,
 ) {
     var visualScale = 1f
+    var visualAlpha = 1f
     val origin = pointer + anchorOffset
     var released = false
     var pointer by mutableStateOf(pointer)
@@ -496,7 +497,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 preview.progress.animateTo(1f, androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing))
             }
         }
-        mergeReady = candidate?.takeIf { next.armed(now) }
+        mergeReady = candidate?.takeIf { id ->
+            next.armed(now) && mergePreviews.any { it.target.id == id && !it.released && it.progress.value >= 1f }
+        }
         val id = (targetFor(session) as? DropTarget.Folder)?.id
         if (hoverFolder != id) {
             hoverJob?.cancel()
@@ -546,7 +549,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         resetMerge()
         val session = drag
         if (session != null && !session.isWidget && session.content is AppContent) {
-            val flight = folderLanding ?: FolderLanding(-1, (session.content as AppContent).app, session.icon, session.anchor, session.visualScale)
+            val flight = folderLanding ?: FolderLanding(-1, (session.content as AppContent).app, session.icon, session.anchor, session.visualScale, initialAlpha = session.visualAlpha)
             flight.source = session
             flight.returning = true
             flight.validated = true
@@ -570,7 +573,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val key = (s.content as? AppContent)?.app
         val folderId = (target as? DropTarget.Folder)?.id ?: (target as? DropTarget.Merge)?.target?.id ?: -1
         val destinationSnapshot = layout.items.find { it.id == folderId }
-        val flight = key?.let { FolderLanding(folderId, it, s.icon, s.anchor, s.visualScale, velocity).also {
+        val flight = key?.let { FolderLanding(folderId, it, s.icon, s.anchor, s.visualScale, velocity, initialAlpha = s.visualAlpha).also {
             it.source = s
             folderLanding = it
         } }

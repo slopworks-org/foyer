@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -210,7 +211,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                         }
                     }
                 } else {
-                    BoxWithConstraints(Modifier.fillMaxSize().padding(5.dp)) {
+                    BoxWithConstraints(Modifier.fillMaxSize().padding(5.dp), contentAlignment = AbsoluteAlignment.TopLeft) {
                         folderPreviewMembers(folder.apps.size).forEach { (index, center) ->
                             key(folder.entries[index]) {
                                 val x by animateFloatAsState(center.x, tween(240), label = "preview x")
@@ -225,7 +226,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                                 }
                                 val dragged = (state.drag?.source as? DragSource.Member)?.let { it.folderId == item.id && it.entryId == folder.entries[index].id } == true
                                 AppIcon(state.appFor(AppContent(folder.entries[index].app))?.icon, size,
-                                    Modifier.absoluteOffset { IntOffset(frame.left.roundToInt(), frame.top.roundToInt()) }.graphicsLayer {
+                                    Modifier.absoluteOffset { IntOffset(frame.left.roundToInt(), frame.top.roundToInt()) }.testTag("folder-preview-${item.id}-$index").graphicsLayer {
                                         alpha = if (dragged || state.folderLanding?.let { it.folderId == item.id && it.entryId == folder.entries[index].id } == true) 0f else 1f
                                     })
                             }
@@ -598,7 +599,8 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
         .graphicsLayer {
             scaleX = frame.width / icon
             scaleY = scaleX
-            alpha = 1f + (destinationAlpha - 1f) * ((progress - .65f) / .35f).coerceIn(0f, 1f)
+            val incomingAlpha = landing.initialAlpha + (1f - landing.initialAlpha) * progress
+            alpha = incomingAlpha * (1f + (destinationAlpha - 1f) * ((progress - .65f) / .35f).coerceIn(0f, 1f))
         }.drawWithContent {
             if (viewport == null || frame.width <= 0f || frame.height <= 0f) drawContent()
             else {

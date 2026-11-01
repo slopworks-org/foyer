@@ -25,6 +25,34 @@ import java.io.File
 class FolderEntriesUiTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
+    @Test fun rtlClosedPreviewUsesPhysicalMiniaturePositions() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        lateinit var state: LauncherState
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val app = graph.apps.apps.value.first().key
+        try {
+            rule.runOnUiThread {
+                graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(app, app)), 2, 3) }
+            }
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                state = remember { LauncherState(graph, scope, rule.activity) }
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { FoyerRoot(state) }
+            }
+            rule.waitForIdle()
+            val surface = rule.runOnIdle { state.folderSurfaceBounds.getValue(1) }
+            val density = rule.activity.resources.displayMetrics.density
+            for (index in 0..1) {
+                val expected = folderMemberStart(surface, false, 2, index, state.iconSize.value * density, 5f * density)
+                val actual = rule.onNodeWithTag("folder-preview-1-$index", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                assertEquals(expected.center.x, actual.center.x, 1.1f)
+                assertEquals(expected.center.y, actual.center.y, 1.1f)
+                assertTrue(surface.contains(actual.center))
+            }
+        } finally { rule.runOnUiThread { graph.layout.edit { saved } } }
+    }
+
     @Test fun repeatedAppsHaveDistinctAccessiblePositions() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
@@ -82,6 +110,10 @@ class FolderEntriesUiTest {
             rule.runOnIdle {
                 state.refreshDragTargets()
                 assertEquals(1L, state.mergeCandidate)
+            }
+            rule.mainClock.advanceTimeBy(260)
+            rule.runOnIdle {
+                state.refreshDragTargets()
                 assertEquals(1L, state.mergeReady)
                 kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo((state.cellH * 2).toInt()) }
             }
@@ -198,7 +230,11 @@ class FolderEntriesUiTest {
             rule.mainClock.advanceTimeBy(700)
             android.os.SystemClock.sleep(340)
             rule.runOnUiThread { state.refreshDragTargets() }
-            rule.waitUntil(5000) { state.mergeReady == 1L }
+            rule.waitUntil(5000) {
+                rule.mainClock.advanceTimeBy(16)
+                rule.runOnUiThread { state.refreshDragTargets() }
+                state.mergeReady == 1L
+            }
             rule.mainClock.advanceTimeBy(32)
             rule.onNodeWithTag("folder-merge-preview", useUnmergedTree = true).assertExists()
             val ghost = rule.onNodeWithTag("drag-ghost", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot

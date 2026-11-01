@@ -866,6 +866,10 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
             .testTag("drag-ghost")
             .graphicsLayer {
                 s.visualScale = lift.value
+                // Reveal the prospective folder beneath a centered, finger-bound icon.
+                val morph = state.mergePreviews.filter { !it.committed }.maxOfOrNull { it.progress.value } ?: 0f
+                s.visualAlpha = 1f - .78f * morph
+                alpha = s.visualAlpha
                 scaleX = lift.value
                 scaleY = lift.value
             },

@@ -40,6 +40,7 @@ class FolderMorphTest {
                 } }
                 FoyerRoot(state)
             }
+            rule.waitForIdle()
             rule.waitUntil { state.appIconBounds.size == 2 }
             fun begin() = rule.runOnUiThread {
                 val source = graph.layout.layout.value.items.last()
@@ -57,7 +58,11 @@ class FolderMorphTest {
             assertEquals(initial, graph.layout.layout.value)
             validationDelay = 1800
             begin()
-            rule.waitUntil(5000) { state.mergeReady == 1L }
+            rule.waitUntil(5000) {
+                rule.mainClock.advanceTimeBy(16)
+                rule.runOnUiThread { state.refreshDragTargets() }
+                state.mergeReady == 1L
+            }
             rule.runOnUiThread {
                 state.endDrag(Offset(300f, 0f))
                 assertNotNull(state.folderLanding)
@@ -68,7 +73,11 @@ class FolderMorphTest {
             // A fresh armed gesture validates and leaves the resulting folder closed.
             validationDelay = 0
             begin()
-            rule.waitUntil(5000) { state.mergeReady == 1L }
+            rule.waitUntil(5000) {
+                rule.mainClock.advanceTimeBy(16)
+                rule.runOnUiThread { state.refreshDragTargets() }
+                state.mergeReady == 1L
+            }
             rule.runOnUiThread { state.endDrag() }
             rule.waitUntil(5000) { graph.layout.layout.value.items.singleOrNull()?.content is FolderContent }
             rule.waitUntil(5000) { state.folderLanding == null }
@@ -78,7 +87,7 @@ class FolderMorphTest {
                 assertEquals(listOf(key, key), (graph.layout.layout.value.items.single().content as FolderContent).apps)
             }
         } finally {
-            rule.runOnUiThread { state.cancelDrag(); graph.layout.edit { saved } }
+            rule.runOnUiThread { runCatching { state.cancelDrag() }; graph.layout.edit { saved } }
         }
     }
 
@@ -98,6 +107,7 @@ class FolderMorphTest {
                 state = remember { LauncherState(graph, scope, rule.activity) }
                 FoyerRoot(state)
             }
+            rule.waitForIdle()
             rule.waitUntil { state.folderBounds.containsKey(singleton.id) }
             rule.runOnUiThread { state.openFolder = singleton.id }
             rule.waitUntil { state.folderPanelBounds != null }
@@ -110,7 +120,7 @@ class FolderMorphTest {
                 assertFalse(state.folderSurfaceBounds.containsKey(singleton.id))
             }
         } finally {
-            rule.runOnUiThread { state.cancelDrag(); graph.layout.edit { saved } }
+            rule.runOnUiThread { runCatching { state.cancelDrag() }; graph.layout.edit { saved } }
         }
     }
 }
