@@ -26,13 +26,16 @@ class FolderDropTargetTest {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
         var light by mutableStateOf(false)
+        var validationGate: kotlinx.coroutines.CompletableDeferred<Set<AppKey>>? = null
         lateinit var state: LauncherState
         rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
         val app = graph.apps.apps.value.first()
         try {
             rule.activity.setContent {
                 val scope = rememberCoroutineScope()
-                state = remember { LauncherState(graph, scope, rule.activity) }
+                state = remember { LauncherState(graph, scope, rule.activity) { keys ->
+                    validationGate?.await() ?: graph.apps.missingFolderApps(keys)
+                } }
                 val configuration = Configuration(LocalConfiguration.current).apply {
                     uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
                         if (light) Configuration.UI_MODE_NIGHT_NO else Configuration.UI_MODE_NIGHT_YES
@@ -96,6 +99,57 @@ class FolderDropTargetTest {
                 assertEquals(destinationFrame.top, committedFrame.top, 1.1f)
                 rule.onAllNodesWithTag("folder-drop-1-${p.slot}", useUnmergedTree = true).assertCountEquals(0)
             }
+            for (large in listOf(false, true)) {
+                fixture(0, large)
+                if (!large) rule.runOnIdle { state.openFolder = 1 }
+                rule.mainClock.advanceTimeBy(800)
+                rule.runOnIdle {
+                    val point = if (large) state.folderSurfaceBounds.getValue(1).center else state.folderHitGridBounds!!.center
+                    state.startDrag(DragSession(DragSource.New(AppContent(app.key)), app.icon, Offset.Zero, point))
+                }
+                rule.mainClock.advanceTimeBy(800)
+                val p = preview()
+                assertEquals(AppContent(app.key), p.standalone?.content)
+                val markerBounds = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                val expected = rule.runOnIdle { state.gridCoords!!.localToRoot(Offset(state.cellW, state.cellH * 2)) }
+                assertEquals(expected.x, markerBounds.left, 1.1f)
+                assertEquals(expected.y, markerBounds.top, 1.1f)
+                assertEquals(state.cellW, markerBounds.width, 1.1f)
+                capture("empty-${if (large) "large" else "small"}")
+                rule.runOnIdle { state.endDrag() }
+                rule.waitUntil(10000) { rule.mainClock.advanceTimeBy(100); state.drag == null }
+                assertEquals(AppContent(app.key), graph.layout.layout.value.items.single().content)
+            }
+            for (outcome in listOf("accept", "reject", "cancel")) {
+                fixture(24)
+                rule.runOnIdle { state.openFolder = 1 }
+                rule.mainClock.advanceTimeBy(800)
+                val before = graph.layout.layout.value
+                val gate = kotlinx.coroutines.CompletableDeferred<Set<AppKey>>()
+                rule.runOnIdle {
+                    validationGate = gate
+                    val grid = state.folderGridBounds!!
+                    state.startDrag(DragSession(DragSource.New(AppContent(app.key)), app.icon, Offset.Zero,
+                        Offset(grid.center.x, grid.bottom - 3f)))
+                    state.endDrag()
+                }
+                rule.mainClock.advanceTimeBy(32)
+                val pending = rule.runOnIdle { state.folderDropPreview(state.drag!!, includeReleased = true)!! }
+                val releaseScroll = state.folderGridScroll
+                rule.mainClock.advanceTimeBy(600)
+                rule.runOnIdle {
+                    assertEquals(releaseScroll, state.folderGridScroll, .1f)
+                    assertSame(pending, state.folderDropPreview(state.drag!!, includeReleased = true))
+                    if (outcome == "cancel") state.cancelDrag()
+                    gate.complete(if (outcome == "reject") setOf(app.key) else emptySet())
+                    validationGate = null
+                }
+                rule.waitUntil(10000) { rule.mainClock.advanceTimeBy(100); state.drag == null }
+                if (outcome == "accept") {
+                    val incoming = folder().entries.single { it.id !in (0 until 24).map { i -> "e$i" } }
+                    assertEquals(pending.slot, folder().entries.indexOf(incoming))
+                } else assertEquals(before, graph.layout.layout.value)
+            }
             fixture(4)
             rule.runOnIdle { state.openFolder = 1 }
             rule.mainClock.advanceTimeBy(800)
@@ -134,6 +188,27 @@ class FolderDropTargetTest {
                 rule.waitUntil(10000) { rule.mainClock.advanceTimeBy(100); state.drag == null }
                 assertEquals("e0", folder().slotEntries[slot]?.id)
             }
+            fixture(2, true)
+            rule.runOnIdle {
+                graph.layout.edit { Edits.add(it, FolderContent(entries = listOf(
+                    FolderEntry(app.key, "overlap-0"), FolderEntry(app.key, "overlap-1"))), 3, 2) }
+                state.openFolder = 2
+            }
+            rule.mainClock.advanceTimeBy(800)
+            rule.runOnIdle {
+                val panel = state.folderPanelBounds!!
+                val surface = state.folderSurfaceBounds.getValue(1)
+                val exposed = (0..8).filter { folder().slotEntries[it] == null }.flatMap { slot ->
+                    val cell = largeFolderCell(surface, slot, state.folderInsetPx)
+                    if (!cell.overlaps(panel)) emptyList() else listOf(.1f, .5f, .9f).flatMap { x ->
+                        listOf(.1f, .5f, .9f).map { y -> Offset(cell.left + cell.width * x, cell.top + cell.height * y) }
+                    }.filterNot(panel::contains)
+                }.first()
+                state.startDrag(DragSession(DragSource.Member(2, app.key, "overlap-0"), app.icon, Offset.Zero, exposed))
+            }
+            rule.mainClock.advanceTimeBy(800)
+            assertEquals(1L, preview().folderId)
+            capture("large-behind-panel")
             // Contrast over artwork unlike Calendar, centered and offset within the same slot.
             val solidApp = graph.apps.apps.value.first { it.key != app.key }
             fixture(2, true)

@@ -159,7 +159,8 @@ internal fun advanceCollapseFrame(frame: Rect, destination: Rect, previous: Floa
 }
 
 /** Resulting cell and order, including sparse absolute slots and repeated app occurrences. */
-internal data class FolderDropPreview(val folderId: Long, val folder: FolderContent, val entryId: String, val slot: Int) {
+internal data class FolderDropPreview(val folderId: Long, val folder: FolderContent, val entryId: String, val slot: Int,
+    val standalone: app.foyer.data.HomeItem? = null) {
     val panelOrder get() = folder.entries.map { if (it.id == entryId) null else it }
 }
 

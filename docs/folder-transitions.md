@@ -55,4 +55,7 @@ cell. The broken perimeter distinguishes the target from rounded icon artwork in
 The preview's order and occurrence ID come from the same transfer plan as release,
 including fifth-item reflow, duplicate apps, sparse large slots and swaps. Invalid
 plans have no landing frame. Release removes the frame immediately while retaining
-the pending order through validation; cancel restores the original order.
+the pending order captured at release through validation; panel edge scrolling stops
+on release, and cancel restores the original order. Adding to an empty folder outlines
+the resulting standalone app cell at the folder's stored top-left position. Large-slot
+corner marks are clipped out of any overlapping foreground folder panel.

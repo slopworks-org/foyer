@@ -108,6 +108,7 @@ class DragSession(
 ) {
     var visualScale = 1f
     var visualAlpha = 1f
+    internal var pendingFolderDrop: FolderDropPreview? = null
     val origin = pointer + anchorOffset
     var released by mutableStateOf(false)
     var pointer by mutableStateOf(pointer)
@@ -652,6 +653,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         if (preview == null) resetMerge() else preview.released = true
         hoverJob?.cancel()
         hoverFolder = null
+        s.pendingFolderDrop = folderDropPreview(s)
         s.released = true
         val key = (s.content as? AppContent)?.app
         val folderId = (target as? DropTarget.Folder)?.id ?: (target as? DropTarget.Merge)?.target?.id ?: -1
@@ -808,11 +810,16 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     /** Resolve feedback from the same transfer result used by release, by occurrence identity. */
     internal fun folderDropPreview(s: DragSession, includeReleased: Boolean = false): FolderDropPreview? {
-        if (s.released && (!includeReleased || folderLanding?.returning == true)) return null
+        if (s.released) return s.pendingFolderDrop.takeIf { includeReleased && folderLanding?.returning != true }
         val target = targetFor(s) as? DropTarget.Folder ?: return null
         val result = plan(s, target)?.first ?: return null
         val before = layout.items.find { it.id == target.id }?.content as? FolderContent ?: return null
-        val after = result.items.find { it.id == target.id }?.content as? FolderContent ?: return null
+        val destination = result.items.find { it.id == target.id } ?: return null
+        if (destination.content is AppContent) {
+            val entry = destination.folderSurvivor ?: return null
+            return FolderDropPreview(target.id, before, entry.id, 0, standalone = destination)
+        }
+        val after = destination.content as? FolderContent ?: return null
         val member = s.source as? DragSource.Member
         val entry = if (member?.folderId == target.id) member.entryId
             else after.entries.singleOrNull { incoming -> before.entries.none { it.id == incoming.id } }?.id

@@ -182,7 +182,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
             val surface = if (folder.large) Modifier.size(minOf(maxWidth, maxHeight)) else Modifier.fillMaxSize()
             Box(surface.graphicsLayer { alpha = if (interactive && (state.folderTransitionId == item.id || state.mergePreviews.any { it.target.id == item.id && it.committed })) 0f else 1f }.onGloballyPositioned { if (interactive) state.folderSurfaceBounds[item.id] = if (folder.large)
                     Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat())) else it.boundsInRoot() }
-                .then(if (interactive && !folder.large && target?.folderId == item.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary,
+                .then(if (interactive && !folder.large && target?.standalone == null && target?.folderId == item.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary,
                 if (folder.large) RoundedCornerShape(24.dp) else CircleShape) else Modifier)) {
                 // A sibling hit target gives member drags exclusive ownership of their gestures.
                 Box(Modifier.matchParentSize().clip(if (folder.large) RoundedCornerShape(24.dp) else CircleShape)
@@ -210,7 +210,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                                 }
                             }
                         }
-                        if (interactive && target?.folderId == item.id) {
+                        if (interactive && target?.standalone == null && target?.folderId == item.id) {
                             val slot = target.slot
                             Box(Modifier.absoluteOffset { IntOffset(
                                 with(density) { (maxWidth / 3 * (slot % 3)).roundToPx() },
@@ -352,7 +352,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                 val now = withFrameNanos { it }
                 val seconds = ((now - previous) / 1_000_000_000f).coerceAtMost(.05f)
                 previous = now
-                val session = state.drag ?: break
+                val session = state.drag?.takeUnless { it.released } ?: break
                 if (!state.folderOwnsDrag(session)) continue
                 val grid = state.folderGridBounds ?: continue
                 val delta = folderEdgeScroll(session.pointer, grid, zone, speed) * seconds
@@ -503,8 +503,7 @@ internal fun MergePreviewOverlay(state: LauncherState, layout: HomeLayout) {
                 if (preview.released) projection.animateTo(0f, tween(80))
                 else projection.animateTo(1f, tween(80))
             }
-            val viewport = state.viewportCoords?.takeIf { it.isAttached }?.boundsInRoot() ?: return
-    val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: state.screenHeight
+            val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: state.screenHeight
             val top = state.viewportCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top?.coerceAtLeast(0f) ?: 0f
             Box(Modifier.fillMaxSize().drawWithContent {
                 clipRect(0f, top, size.width, dockTop.coerceAtLeast(top)) {
@@ -697,22 +696,37 @@ internal fun FolderCollapseOverlay(state: LauncherState) {
 
 /** A large slot is smaller than the lifted icon: keep its precise rim visible above it. */
 @Composable
-internal fun LargeFolderDropOutline(state: LauncherState) {
+internal fun FolderDropOutline(state: LauncherState) {
     val session = state.drag ?: return
-    val target = state.folderDropPreview(session)?.takeIf { it.folder.large } ?: return
-    val surface = state.folderSurfaceBounds[target.folderId] ?: return
-    val bounds = largeFolderCell(surface, target.slot, state.folderInsetPx)
+    val target = state.folderDropPreview(session)?.takeIf { it.folder.large || it.standalone != null } ?: return
+    val standalone = target.standalone
+    val bounds = if (standalone != null) {
+        val grid = state.gridCoords?.takeIf { it.isAttached } ?: return
+        Rect(grid.localToRoot(Offset(standalone.x * state.cellW, standalone.y * state.cellH)),
+            Size(state.cellW, state.cellH))
+    } else {
+        val surface = state.folderSurfaceBounds[target.folderId] ?: return
+        largeFolderCell(surface, target.slot, state.folderInsetPx)
+    }
     val viewport = state.viewportCoords?.takeIf { it.isAttached }?.boundsInRoot() ?: return
     val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: Float.POSITIVE_INFINITY
     val density = LocalDensity.current
     val color = MaterialTheme.colorScheme.onSurface
     val backing = MaterialTheme.colorScheme.surface
     Box(Modifier.fillMaxSize().drawWithContent {
-        clipRect(viewport.left, viewport.top, viewport.right, minOf(viewport.bottom, dockTop)) { this@drawWithContent.drawContent() }
+        clipRect(viewport.left, viewport.top, viewport.right, minOf(viewport.bottom, dockTop)) {
+            val panel = state.folderPanelBounds
+            // An empty folder converts into this desktop cell; otherwise the foreground
+            // panel must occlude feedback belonging to a neighboring large folder.
+            if (panel == null || standalone != null) this@drawWithContent.drawContent()
+            else clipRect(panel.left, panel.top, panel.right, panel.bottom,
+                androidx.compose.ui.graphics.ClipOp.Difference) { this@drawWithContent.drawContent() }
+        }
     }) {
         Box(Modifier.offset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
             .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
-            .drawWithContent {
+            .testTag("folder-drop-outline-${target.folderId}")
+            .then(if (standalone != null) Modifier.landingFrame(color, state.iconSize / 2) else Modifier.drawWithContent {
                 // Broken right-angle corners read as a target, rather than an icon border.
                 // The backing keeps them legible over arbitrary opaque icon artwork.
                 val inset = 2.dp.toPx()
@@ -727,6 +741,6 @@ internal fun LargeFolderDropOutline(state: LauncherState) {
                 }
                 drawPath(corners, backing, style = androidx.compose.ui.graphics.drawscope.Stroke(4.dp.toPx()))
                 drawPath(corners, color, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
-            })
+            }))
     }
 }
