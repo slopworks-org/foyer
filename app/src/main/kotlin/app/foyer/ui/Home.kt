@@ -83,6 +83,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -851,7 +852,7 @@ internal fun MergeHintOverlay(state: LauncherState) {
     val x = (bounds.center.x - width / 2).coerceIn(margin, (root.size.width - width - margin).coerceAtLeast(margin))
     val below = bounds.bottom + margin
     val y = (if (below + height + margin <= ceiling) below else bounds.top - height - margin).coerceAtLeast(margin)
-    Box(Modifier.absoluteOffset { IntOffset(x.roundToInt(), y.roundToInt()) }
+    Box(Modifier.absoluteOffset { IntOffset(x.roundToInt(), y.roundToInt()) }.testTag("folder-merge-hint")
         .requiredSize(with(density) { width.toDp() }, 32.dp)
         .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
         Text(stringResource(if (state.mergeReady == candidate) R.string.folder_merge_ready else R.string.folder_merge_hint),
@@ -884,6 +885,7 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
         iconSize,
         Modifier
             .offset { (s.anchor - Offset(half, half)).let { IntOffset(it.x.roundToInt(), it.y.roundToInt()) } }
+            .testTag("drag-ghost")
             .graphicsLayer {
                 s.visualScale = lift.value
                 scaleX = lift.value

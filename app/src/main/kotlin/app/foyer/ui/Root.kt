@@ -9,6 +9,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import kotlin.coroutines.cancellation.CancellationException
@@ -119,9 +120,14 @@ fun FoyerRoot(state: LauncherState) {
 
                 BackHandler(enabled = state.drag != null) { state.cancelDrag() }
                 FolderOverlay(state, layout)
-                DragGhost(state, iconSize = state.iconSize)
-                MergeHintOverlay(state)
-                FolderLandingOverlay(state, layout)
+                // These overlays use physical root coordinates, regardless of locale.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Box(Modifier.fillMaxSize()) {
+                        DragGhost(state, iconSize = state.iconSize)
+                        MergeHintOverlay(state)
+                        FolderLandingOverlay(state, layout)
+                    }
+                }
                 MenuOverlay(state)
                 WidgetPicker(state)
                 SettingsScreen(state, layout.settings)

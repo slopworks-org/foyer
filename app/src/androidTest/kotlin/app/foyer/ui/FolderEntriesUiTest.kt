@@ -2,6 +2,10 @@ package app.foyer.ui
 
 import android.graphics.Bitmap
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.geometry.Offset
@@ -26,6 +30,7 @@ class FolderEntriesUiTest {
         val saved = graph.layout.layout.value
         lateinit var state: LauncherState
         val launched = mutableListOf<AppKey>()
+        val rtl = mutableStateOf(false)
         rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
         val app = graph.apps.apps.value.first().key
         val a = FolderEntry(app); val b = FolderEntry(app)
@@ -53,7 +58,7 @@ class FolderEntriesUiTest {
                 state = remember { LauncherState(graph, scope, object : LauncherActions by rule.activity {
                     override fun launchApp(app: AppInfo, bounds: android.graphics.Rect?) { launched += app.key }
                 }) }
-                FoyerRoot(state)
+                CompositionLocalProvider(LocalLayoutDirection provides if (rtl.value) LayoutDirection.Rtl else LayoutDirection.Ltr) { FoyerRoot(state) }
             }
             rule.waitForIdle()
             rule.runOnIdle { state.openFolder = 1 }
@@ -106,6 +111,32 @@ class FolderEntriesUiTest {
             rule.waitUntil { graph.layout.layout.value.items.size == 1 }
             assertEquals(listOf(app, app), (graph.layout.layout.value.items.single().content as FolderContent).apps)
             shot("14-accessible-combine-two-copies")
-        } finally { rule.runOnIdle { state.cancelDrag(); state.openFolder = null; graph.layout.edit { saved } } }
+            rule.runOnIdle {
+                rtl.value = true
+                graph.layout.edit { Edits.add(HomeLayout(seeded = true), AppContent(app), 0, 2) }
+            }
+            rule.waitForIdle()
+            var anchor = Offset.Zero
+            rule.mainClock.autoAdvance = false
+            rule.runOnUiThread {
+                anchor = state.appIconBounds.getValue(1).center
+                state.startDrag(DragSession(DragSource.New(AppContent(app)), null, Offset.Zero, anchor))
+                state.moveDrag(anchor)
+            }
+            rule.mainClock.advanceTimeBy(700)
+            rule.waitUntil(5000) { state.mergeReady == 1L }
+            rule.mainClock.advanceTimeBy(32)
+            val hint = rule.onNodeWithTag("folder-merge-hint", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val ghost = rule.onNodeWithTag("drag-ghost", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertTrue(hint.left >= 0f && hint.right <= state.rootCoords!!.size.width)
+            assertTrue(hint.left < anchor.x && hint.right > anchor.x)
+            assertEquals(anchor.x, ghost.center.x, 1f)
+            assertEquals(anchor.y, ghost.center.y, 1f)
+            shot("15-rtl-feedback-and-ghost-physical-coordinates")
+        } finally {
+            rule.runOnUiThread { state.cancelDrag(); state.openFolder = null; graph.layout.edit { saved } }
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+        }
     }
 }
