@@ -628,20 +628,32 @@ internal fun FolderCollapseOverlay(state: LauncherState) {
     val icon = with(density) { state.iconSize.toPx() }
     state.folderCollapses.values.toList().forEach { collapse ->
         key(collapse) {
-            val destination = state.appIconBounds[collapse.item.id]
+            val destination by rememberUpdatedState(state.appIconBounds[collapse.item.id])
             LaunchedEffect(collapse) {
-                // Let the replacement app measure its actual icon, rather than using cell bounds.
-                withFrameNanos { }
-                try { collapse.progress.animateTo(1f, tween(260, easing = FastOutSlowInEasing)) }
-                finally { if (state.folderCollapses[collapse.item.id] === collapse) state.folderCollapses.remove(collapse.item.id) }
+                try {
+                    // Measure the replacement before starting; bounds remain live throughout both phases.
+                    while (destination == null) withFrameNanos { }
+                    var previous = 0f
+                    collapse.progress.animateTo(1f, tween(340, easing = androidx.compose.animation.core.LinearEasing)) {
+                        val end = destination ?: return@animateTo
+                        collapse.frame = advanceCollapseFrame(collapse.frame, end, previous, value, icon)
+                        collapse.surfaceFrame = advanceCollapseFrame(collapse.surfaceFrame, end, previous, value, icon, surface = true)
+                        previous = value
+                    }
+                } finally { if (state.folderCollapses[collapse.item.id] === collapse) state.folderCollapses.remove(collapse.item.id) }
             }
-            val p = collapse.progress.value
-            val frame = folderMemberFrame(collapse.start, destination ?: collapse.start, p)
-            if (collapse.panel) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .22f * (1f - p))))
-            Box(Modifier.offset { IntOffset(collapse.surface.left.roundToInt(), collapse.surface.top.roundToInt()) }
-                .size(with(density) { collapse.surface.width.toDp() }, with(density) { collapse.surface.height.toDp() })
-                .graphicsLayer { alpha = 1f - p; scaleX = 1f - .12f * p; scaleY = scaleX }
-                .clip(if (collapse.panel || (collapse.item.content as FolderContent).large) RoundedCornerShape(24.dp) else CircleShape)
+            val close = collapseClose(collapse.progress.value)
+            val grow = collapseGrow(collapse.progress.value)
+            val frame = collapse.frame
+            val surface = collapse.surfaceFrame
+            if (collapse.panel) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .22f * (1f - close))))
+            Box(Modifier.offset { IntOffset(surface.left.roundToInt(), surface.top.roundToInt()) }
+                .size(with(density) { surface.width.toDp() }, with(density) { surface.height.toDp() })
+                .graphicsLayer { alpha = 1f - grow }
+                .clip(RoundedCornerShape(with(density) {
+                    val initial = if (collapse.panel || (collapse.item.content as FolderContent).large) 24.dp.toPx() else collapse.surface.width / 2
+                    (initial + (surface.width / 2 - initial) * close).toDp()
+                }))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh))
             val oldFolder = collapse.item.content as FolderContent
             if (!oldFolder.large && oldFolder.name.isNotEmpty()) Text(oldFolder.name,
@@ -651,7 +663,7 @@ internal fun FolderCollapseOverlay(state: LauncherState) {
                 modifier = Modifier.offset { IntOffset(collapse.surface.left.roundToInt(),
                     (if (collapse.panel) collapse.surface.bottom - with(density) { 48.dp.toPx() } else collapse.surface.bottom + with(density) { 4.dp.toPx() }).roundToInt()) }
                     .width(with(density) { collapse.surface.width.toDp() }).then(if (collapse.panel) Modifier.height(48.dp).wrapContentHeight() else Modifier)
-                    .graphicsLayer { alpha = 1f - p })
+                    .graphicsLayer { alpha = 1f - close })
             AppIcon(collapse.icon, state.iconSize, Modifier.offset {
                 IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt())
             }.graphicsLayer { scaleX = frame.width / icon; scaleY = frame.height / icon }.testTag("folder-survivor-${collapse.item.id}"))

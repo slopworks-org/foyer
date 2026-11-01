@@ -128,3 +128,24 @@ internal fun largeFolderSlot(point: Offset, surface: Rect, inset: Float): Int {
     val row = ((point.y - grid.top) / (grid.height / 3)).toInt().coerceIn(0, 2)
     return row * 3 + column
 }
+
+/** 180ms closure followed immediately by 160ms growth; no persisted singleton state. */
+internal const val COLLAPSE_CLOSE_FRACTION = 180f / 340f
+internal fun collapseClose(progress: Float): Float = androidx.compose.animation.core.FastOutSlowInEasing
+    .transform((progress / COLLAPSE_CLOSE_FRACTION).coerceIn(0f, 1f))
+internal fun collapseGrow(progress: Float): Float = androidx.compose.animation.core.FastOutSlowInEasing
+    .transform(((progress - COLLAPSE_CLOSE_FRACTION) / (1f - COLLAPSE_CLOSE_FRACTION)).coerceIn(0f, 1f))
+
+/** Incremental interpolation follows a live destination without recomputing from a stale origin.
+ * A destination change never moves the current frame at zero elapsed time. Crossing the phase
+ * boundary explicitly visits the centered singleton, even when a slow frame spans both phases.
+ */
+internal fun advanceCollapseFrame(frame: Rect, destination: Rect, previous: Float, next: Float,
+    icon: Float, surface: Boolean = false): Rect {
+    fun advance(from: Rect, target: Rect, before: Float, after: Float): Rect =
+        if (after <= before) from else folderMemberFrame(from, target,
+            ((after - before) / (1f - before).coerceAtLeast(.000001f)).coerceIn(0f, 1f))
+    val singleton = if (surface) destination else folderMemberStart(destination, false, 1, 0, icon, 0f)
+    val closed = advance(frame, singleton, collapseClose(previous), collapseClose(next))
+    return advance(closed, destination, collapseGrow(previous), collapseGrow(next))
+}

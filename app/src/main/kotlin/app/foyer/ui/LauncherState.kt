@@ -94,6 +94,8 @@ internal class FolderCollapse(val item: HomeItem, val key: app.foyer.data.AppKey
     val start: androidx.compose.ui.geometry.Rect, val surface: androidx.compose.ui.geometry.Rect,
     val panel: Boolean, val icon: Icon?) {
     val progress = Animatable(0f)
+    var frame by mutableStateOf(start)
+    var surfaceFrame by mutableStateOf(surface)
 }
 
 @Stable
