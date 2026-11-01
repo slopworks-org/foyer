@@ -55,6 +55,7 @@ data class FolderContent(
     val slotEntries get() = (0..8).map { slot -> entries.find { it.slot == slot } }
 
     fun normalized(): FolderContent {
+        if (entries.isEmpty()) return this
         val ids = mutableSetOf<String>()
         val repaired = entries.map { entry ->
             if (entry.id.isNotBlank() && ids.add(entry.id)) entry else {
@@ -120,6 +121,9 @@ data class HomeItem(
     val h: Int = 1,
     val dock: Boolean = false,
 ) {
+    /** Ephemeral provenance for a live folder-to-app transition; never persisted or replayed. */
+    @kotlinx.serialization.Transient var folderSurvivor: FolderEntry? = null
+        internal set
     fun covers(cx: Int, cy: Int) = cx in x until x + w && cy in y until y + h
     fun overlaps(ox: Int, oy: Int, ow: Int, oh: Int) = x < ox + ow && ox < x + w && y < oy + oh && oy < y + h
 }
@@ -217,24 +221,28 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
 
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
-    fun normalizeFolders(l: HomeLayout): HomeLayout = l.copy(items = l.items.mapNotNull { item ->
-        val folder = item.content as? FolderContent ?: return@mapNotNull item
-        if (folder.entries.isEmpty()) return@mapNotNull null
+    /** Empty folders retain their place; one occurrence becomes a regular app at that place. */
+    private fun canonicalFolder(item: HomeItem, folder: FolderContent): HomeItem {
+        if (folder.entries.size == 1) return item.copy(content = AppContent(folder.entries.single().app), w = 1, h = 1).also { it.folderSurvivor = folder.entries.single() }
+        if (folder.entries.isEmpty()) return item.copy(content = folder)
         val normalized = folder.normalized()
-        // A legacy oversized folder becomes small; its old footprint can safely be released.
-        item.copy(content = normalized, w = if (normalized.large) 2 else 1, h = if (normalized.large) 2 else 1)
+        return item.copy(content = normalized, w = if (normalized.large) 2 else 1, h = if (normalized.large) 2 else 1)
+    }
+
+    fun normalizeFolders(l: HomeLayout): HomeLayout = l.copy(items = l.items.map { item ->
+        (item.content as? FolderContent)?.let { canonicalFolder(item, it) } ?: item
     }, nextId = maxOf(l.nextId, (l.items.maxOfOrNull { it.id } ?: 0).coerceAtMost(Long.MAX_VALUE - 1) + 1))
 
     fun add(l: HomeLayout, content: Content, x: Int, y: Int, w: Int = 1, h: Int = 1, dock: Boolean = false): HomeLayout {
-        val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
+        val span = if (content is FolderContent) { if (content.large && content.entries.size != 1) 2 else 1 } else w
         val height = if (content is FolderContent) span else h
-        if (content is FolderContent && (dock || content.entries.isEmpty() || content.entries.map { it.id }.distinct().size != content.entries.size || content.large && content.apps.size > 9)) return l
+        if (content is FolderContent && (dock || content.entries.map { it.id }.distinct().size != content.entries.size || content.large && content.apps.size > 9)) return l
         if (dock) { if (!l.dockSlotFree(x)) return l } else if (!l.isFree(x, y, span, height)) return l
-        return l.copy(items = l.items + HomeItem(l.nextId, if (content is FolderContent) content.normalized() else content, x, y, span, height, dock), nextId = l.nextId + 1)
+        return l.copy(items = l.items + HomeItem(l.nextId, content, x, y, span, height, dock).let { if (content is FolderContent) canonicalFolder(it, content) else it }, nextId = l.nextId + 1)
     }
 
     fun addFirstFree(l: HomeLayout, content: Content, w: Int = 1, h: Int = 1): HomeLayout {
-        val span = if (content is FolderContent) { if (content.large) 2 else 1 } else w
+        val span = if (content is FolderContent) { if (content.large && content.entries.size != 1) 2 else 1 } else w
         val (x, y) = l.firstFree(span, if (content is FolderContent) span else h)
         return add(l, content, x, y, w, h)
     }
@@ -259,14 +267,13 @@ object Edits {
     /** Reject invalid edits atomically: membership and occupied cells never change on failure. */
     fun folder(l: HomeLayout, id: Long, folder: FolderContent): HomeLayout {
         val item = l.items.find { it.id == id && it.content is FolderContent && !it.dock } ?: return l
-        if (folder.entries.isEmpty()) return remove(l, id)
-        val span = if (folder.large) 2 else 1
+        val span = if (folder.entries.size == 1) 1 else if (folder.large) 2 else 1
         if (folder.entries.map { it.id }.distinct().size != folder.entries.size || folder.large && folder.apps.size > 9 ||
             !l.isFree(item.x, item.y, span, span, id)) return l
         val old = item.content as FolderContent
         // Mode changes deliberately pack occupied row-major order; large mode has no name.
         val normalized = (if (old.large != folder.large) folder.copy(entries = folder.entries.map { it.copy(slot = null) }) else folder).normalized()
-        return l.copy(items = l.items.map { if (it.id == id) it.copy(content = normalized, w = span, h = span) else it })
+        return l.copy(items = l.items.map { if (it.id == id) canonicalFolder(it.copy(w = span, h = span), normalized) else it })
     }
 
     /** Atomic occurrence transfer; a stale or ambiguous source never consumes anything. */
@@ -346,14 +353,19 @@ object Edits {
     fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(
         items = l.items.mapNotNull { item ->
             val folder = item.content as? FolderContent
-            if (folder == null) item else folder.without(missing).takeIf { it.entries.isNotEmpty() }?.let { item.copy(content = it) }
+            if (folder == null) item else canonicalFolder(item, folder.without(missing))
         },
     )
 
     fun forgetProfiles(l: HomeLayout, users: Set<Long>): HomeLayout = l.copy(
         items = l.items.mapNotNull { item ->
             val c = item.content
-            if (c is FolderContent) c.without(c.apps.filter { it.user in users }.toSet()).takeIf { it.entries.isNotEmpty() }?.let { item.copy(content = it) } else item
+            when (c) {
+                is FolderContent -> canonicalFolder(item, c.without(c.apps.filter { it.user in users }.toSet()))
+                is AppContent -> item.takeUnless { c.app.user in users }
+                is ShortcutContent -> item.takeUnless { c.user in users }
+                is WidgetContent -> item
+            }
         },
     )
 
@@ -363,7 +375,7 @@ object Edits {
                 is AppContent -> item.takeUnless { c.app.pkg == pkg && c.app.user == user }
                 is ShortcutContent -> item.takeUnless { c.pkg == pkg && c.user == user }
                 is WidgetContent -> item.takeUnless { c.provider.startsWith("$pkg/") }
-                is FolderContent -> c.without(c.apps.filter { it.pkg == pkg && it.user == user }.toSet()).takeIf { it.entries.isNotEmpty() }?.let { item.copy(content = it) }
+                is FolderContent -> canonicalFolder(item, c.without(c.apps.filter { it.pkg == pkg && it.user == user }.toSet()))
             }
         },
         aliases = l.aliases.filterKeys { !it.startsWith("$user/$pkg/") },

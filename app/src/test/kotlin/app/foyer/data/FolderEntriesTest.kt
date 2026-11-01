@@ -48,36 +48,37 @@ class FolderEntriesTest {
         val small = Edits.folder(hole, 1, folder(hole).copy(large = false))
         assertEquals(listOf(b.id, c.id, a.id), folder(small).entries.map { it.id })
         val destination = FolderEntry(other)
-        val two = Edits.add(small, FolderContent(entries = listOf(destination)), 3, 0)
+        val companion = FolderEntry(other)
+        val two = Edits.add(small, FolderContent(entries = listOf(destination, companion)), 3, 0)
         val moved = Edits.transferApp(two, app, sourceFolder = 1, sourceEntry = b.id, targetFolder = 2)
         assertEquals(listOf(c.id, a.id), folder(moved).entries.map { it.id })
-        assertEquals(listOf(destination.id, b.id), folder(moved, 2).entries.map { it.id })
+        assertEquals(listOf(destination.id, companion.id, b.id), folder(moved, 2).entries.map { it.id })
         assertEquals(moved, json.decodeFromString<HomeLayout>(json.encodeToString(HomeLayout.serializer(), moved)))
-        assertEquals(listOf(c.id), folder(Edits.forgetPackage(moved, app.pkg, app.user)).entries.map { it.id })
+        assertEquals(AppContent(other), Edits.forgetPackage(moved, app.pkg, app.user).items.first().content)
         val stale = Edits.folder(two, 1, folder(two).withoutEntry(b.id))
         assertSame(stale, Edits.transferApp(stale, app, sourceFolder = 1, sourceEntry = b.id, targetFolder = 2))
     }
 
     @Test fun crossFolderDuplicateTransferRetainsEachOccurrenceAndProfileCleanupRemovesAll() {
-        val a = FolderEntry(app); val b = FolderEntry(app); val c = FolderEntry(app)
+        val a = FolderEntry(app); val b = FolderEntry(app); val c = FolderEntry(app); val d = FolderEntry(app)
         val source = Edits.add(HomeLayout(), FolderContent(entries = listOf(a, b)), 0, 0)
-        val both = Edits.add(source, FolderContent(entries = listOf(c)), 3, 0)
+        val both = Edits.add(source, FolderContent(entries = listOf(c, d)), 3, 0)
         val moved = Edits.transferApp(both, app, sourceFolder = 1, sourceEntry = b.id, targetFolder = 2)
-        assertEquals(listOf(a.id), folder(moved).entries.map { it.id })
-        assertEquals(listOf(c.id, b.id), folder(moved, 2).entries.map { it.id })
+        assertEquals(AppContent(app), moved.items.first().content)
+        assertEquals(listOf(c.id, d.id, b.id), folder(moved, 2).entries.map { it.id })
         val large = Edits.folder(moved, 2, folder(moved, 2).copy(large = true))
         val restored = json.decodeFromString<HomeLayout>(json.encodeToString(HomeLayout.serializer(), large))
-        assertEquals(listOf(c.id, b.id), folder(restored, 2).entries.map { it.id })
+        assertEquals(listOf(c.id, d.id, b.id), folder(restored, 2).entries.map { it.id })
         val cleaned = Edits.forgetProfiles(restored, setOf(app.user))
-        assertTrue(cleaned.items.isEmpty())
+        assertTrue((cleaned.items.single().content as FolderContent).entries.isEmpty())
     }
 
     @Test fun nineDuplicateEntriesFillCapacityAndRejectWithoutConsumingSource() {
         val full = Edits.add(HomeLayout(), FolderContent(List(9) { app }, true), 0, 0)
         val placed = Edits.add(full, AppContent(app), 3, 0)
         assertSame(placed, Edits.transferApp(placed, app, sourceItem = 2, targetFolder = 1))
-        val source = Edits.add(full, FolderContent(listOf(app)), 3, 0)
-        val id = folder(source, 2).entries.single().id
+        val source = Edits.add(full, FolderContent(listOf(app, other)), 3, 0)
+        val id = folder(source, 2).entries.first().id
         assertSame(source, Edits.transferApp(source, app, sourceFolder = 2, sourceEntry = id, targetFolder = 1))
         val reordered = Edits.transferApp(full, app, sourceFolder = 1, sourceEntry = folder(full).entries[0].id, targetFolder = 1, index = 8)
         assertEquals(folder(full).entries[0].id, folder(reordered).slotEntries[8]?.id)
@@ -96,7 +97,7 @@ class FolderEntriesTest {
         val entry = folder(source, 2).entries[1]
         val merged = Edits.mergeApps(source, target, app, sourceFolder = 2, sourceEntry = entry.id)
         assertEquals(entry.id, folder(merged).entries[1].id)
-        assertEquals(folder(source, 2).entries[0].id, folder(merged, 2).entries.single().id)
+        assertEquals(AppContent(app), merged.items.first { it.id == 2L }.content)
         val stale = Edits.move(source, target.id, 3, 3, false)
         assertSame(stale, Edits.mergeApps(stale, target, app, sourceFolder = 2, sourceEntry = entry.id))
         val placed = Edits.add(targetOnly, AppContent(app), 0, 0)

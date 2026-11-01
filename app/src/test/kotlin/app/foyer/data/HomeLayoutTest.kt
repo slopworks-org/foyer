@@ -7,7 +7,7 @@ import org.junit.Test
 class HomeLayoutTest {
     private val json = Json { classDiscriminator = "type"; ignoreUnknownKeys = true }
     private fun app(n: Int, user: Long = 0) = AppKey("pkg$n", "Activity", user)
-    private fun layout(folder: FolderContent = FolderContent(listOf(app(9)))) = Edits.add(HomeLayout(), folder, 0, 0)
+    private fun layout(folder: FolderContent = FolderContent(listOf(app(9), app(8)))) = Edits.add(HomeLayout(), folder, 0, 0)
 
     @Test fun restartReconciliationPreservesUnknownAndUsesProfileIdentity() {
         val absent = app(1)
@@ -53,14 +53,14 @@ class HomeLayoutTest {
 
     @Test fun expansionDoesNotMoveOrOverwriteNeighbors() {
         val occupied = Edits.add(layout(), AppContent(app(1)), 1, 1)
-        assertSame(occupied, Edits.folder(occupied, 1, FolderContent(listOf(app(9)), large = true)))
+        assertSame(occupied, Edits.folder(occupied, 1, FolderContent(listOf(app(9), app(8)), large = true)))
         val free = Edits.remove(occupied, 2)
-        val expanded = Edits.folder(free, 1, FolderContent(listOf(app(9)), large = true))
+        val expanded = Edits.folder(free, 1, FolderContent(listOf(app(9), app(8)), large = true))
         assertEquals(free.items.single().id, expanded.items.single().id)
         assertEquals(2, expanded.items.single().w)
         assertSame(expanded, Edits.move(expanded, 1, 4, 0, false))
-        val edge = Edits.add(HomeLayout(), FolderContent(listOf(app(9))), 4, 0)
-        assertSame(edge, Edits.folder(edge, 1, FolderContent(listOf(app(9)), large = true)))
+        val edge = Edits.add(HomeLayout(), FolderContent(listOf(app(9), app(8))), 4, 0)
+        assertSame(edge, Edits.folder(edge, 1, FolderContent(listOf(app(9), app(8)), large = true)))
     }
 
     @Test fun membershipOrderingAndEmptyTitleAreExplicit() {
@@ -68,7 +68,7 @@ class HomeLayoutTest {
         val edited = Edits.folder(start, 1, FolderContent(listOf(app(2), app(3), app(1)), name = ""))
         assertEquals(listOf(app(2), app(3), app(1)), (edited.items.single().content as FolderContent).apps)
         val empty = Edits.folder(edited, 1, FolderContent())
-        assertTrue(empty.items.isEmpty())
+        assertEquals(FolderContent(), empty.items.single().content)
         assertEquals(edited.nextId, empty.nextId)
     }
 
@@ -79,9 +79,9 @@ class HomeLayoutTest {
         val dock = Edits.add(start, AppContent(app(1)), 2, 0, dock = true)
         assertSame(dock, Edits.swap(dock, dock.items[0], dock.items[1]))
         assertSame(start, Edits.resize(start, 1, 0, 0, 2, 2))
-        val large = layout(FolderContent(listOf(app(9)), large = true))
+        val large = layout(FolderContent(listOf(app(9), app(8)), large = true))
         assertSame(large, Edits.move(large, 1, 0, 0, true))
-        assertSame(large, Edits.add(large, FolderContent(listOf(app(9)), large = true), 2, 0, dock = true))
+        assertSame(large, Edits.add(large, FolderContent(listOf(app(9), app(8)), large = true), 2, 0, dock = true))
         val withDock = Edits.add(large, AppContent(app(1)), 2, 0, dock = true)
         assertSame(withDock, Edits.swap(withDock, withDock.items[0], withDock.items[1]))
     }
@@ -91,10 +91,10 @@ class HomeLayoutTest {
         val cleaned = Edits.forgetPackage(start, "pkg1", 0)
         assertEquals(listOf(app(1, 10), app(2)), (cleaned.items.single().content as FolderContent).apps)
         val profile = Edits.forgetProfiles(cleaned, setOf(10))
-        assertEquals(listOf(app(2)), (profile.items.single().content as FolderContent).apps)
+        assertEquals(AppContent(app(2)), profile.items.single().content)
         assertEquals(start.items.single().id, profile.items.single().id)
         val empty = Edits.forgetPackage(profile, "pkg2", 0)
         assertTrue(empty.items.isEmpty())
-        assertEquals("Tools", (profile.items.single().content as FolderContent).name)
+
     }
 }
