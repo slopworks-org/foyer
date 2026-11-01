@@ -46,7 +46,7 @@
     <string name="folder_move_failed">Folder cannot be placed here.</string>
     <string name="folder_enlarge">Enlarge folder</string>
     <string name="folder_shrink">Shrink folder</string>
-    <string name="folder_drop_failed">Cannot move this app here. The folder may be full or already contain it.</string>
+    <string name="folder_drop_failed">Cannot move this app here. Check that the folder has a free space and the app is still available.</string>
     <string name="folder_earlier">Move earlier</string>
     <string name="folder_later">Move later</string>
     <string name="folder_move_to">Move to %1$s</string>
@@ -54,4 +54,5 @@
     <string name="folder_combine_with">Combine with %1$s</string>
     <string name="folder_merge_hint">Hold to group</string>
     <string name="folder_merge_ready">Release to group</string>
+    <string name="folder_position_label">%1$s, row %2$d, column %3$d</string>
 </resources>

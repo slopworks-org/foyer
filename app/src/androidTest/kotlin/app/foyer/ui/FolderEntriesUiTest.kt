@@ -25,6 +25,34 @@ import java.io.File
 class FolderEntriesUiTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
+    @Test fun repeatedAppsHaveDistinctAccessiblePositions() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val app = graph.apps.apps.value.first()
+        try {
+            graph.layout.edit {
+                var layout = Edits.add(HomeLayout(seeded = true), FolderContent(entries = listOf(FolderEntry(app.key), FolderEntry(app.key)), large = true), 0, 1)
+                layout = Edits.add(layout, AppContent(app.key), 3, 1)
+                Edits.add(layout, AppContent(app.key), 4, 1)
+            }
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                val state = remember { LauncherState(graph, scope, rule.activity) }
+                FoyerRoot(state)
+            }
+            rule.waitForIdle()
+            for (column in 1..2) rule.onNodeWithContentDescription(
+                rule.activity.getString(R.string.folder_position_label, app.label, 1, column), useUnmergedTree = true).assertExists()
+            val labels = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.CustomActions), useUnmergedTree = true)
+                .fetchSemanticsNodes().flatMap { it.config[SemanticsActions.CustomActions].map { action -> action.label } }
+            for (column in 4..5) {
+                val target = rule.activity.getString(R.string.folder_position_label, app.label, 2, column)
+                assertTrue(labels.contains(rule.activity.getString(R.string.folder_combine_with, target)))
+            }
+        } finally { rule.runOnUiThread { graph.layout.edit { saved } } }
+    }
+
     @Test fun stationaryPointerTracksScrolledMergeTargets() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value

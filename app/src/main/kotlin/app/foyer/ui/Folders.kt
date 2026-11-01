@@ -97,9 +97,13 @@ internal fun folderTransferActions(state: LauncherState, key: AppKey, sourceItem
             state.accessibleTransfer(key, sourceFolder = sourceFolder, sourceEntry = sourceEntry, toDock = true); true
         }
     }
-    layout.feed.filter { it.content is AppContent && it.id != sourceItem }.forEach { target ->
-        val label = state.appFor(target.content)?.label ?: (target.content as AppContent).app.pkg
-        actions += CustomAccessibilityAction(resources.getString(R.string.folder_combine_with, label)) {
+    val targets = layout.feed.filter { it.content is AppContent && it.id != sourceItem }
+    val targetLabels = targets.associate { it.id to (state.appFor(it.content)?.label ?: (it.content as AppContent).app.pkg) }
+    targets.forEach { target ->
+        val label = targetLabels.getValue(target.id)
+        val qualified = if (targetLabels.values.count { it == label } > 1)
+            resources.getString(R.string.folder_position_label, label, target.y + 1, target.x + 1) else label
+        actions += CustomAccessibilityAction(resources.getString(R.string.folder_combine_with, qualified)) {
             state.accessibleMerge(target, key, sourceItem, sourceFolder, sourceEntry); true
         }
     }
@@ -120,6 +124,13 @@ private fun memberModifier(state: LauncherState, id: Long, key: FolderEntry, ove
     val bounds = if (overlay) state.panelMemberBounds else state.memberBounds
     DisposableEffect(id, key) { onDispose { bounds.remove(id to key.id) } }
     val accessibleActions = folderTransferActions(state, key.app, sourceFolder = id, sourceEntry = key.id)
+    val layout by state.graph.layout.layout.collectAsState()
+    val folder = layout.items.find { it.id == id }?.content as? FolderContent
+    val label = state.appFor(AppContent(key.app))?.label ?: key.app.pkg
+    val position = if (folder?.large == true) key.slot ?: 0 else folder?.entries?.indexOfFirst { it.id == key.id } ?: 0
+    val columns = folderColumns(folder?.entries?.size ?: 0, folder?.large == true)
+    val description = if ((folder?.entries?.count { it.app == key.app } ?: 0) > 1)
+        stringResource(R.string.folder_position_label, label, position / columns + 1, position % columns + 1) else label
     val dragged = (state.drag?.source as? DragSource.Member)?.let { it.folderId == id && it.entryId == key.id } == true
     // Keep the pointer-owning lazy item alive when edge scrolling moves it offscreen.
     val container = LocalPinnableContainer.current
@@ -138,7 +149,7 @@ private fun memberModifier(state: LauncherState, id: Long, key: FolderEntry, ove
             onDrag = state::moveDrag, onDragEnd = state::endDrag, onDragCancel = state::cancelDrag,
         )).semantics {
             customActions = accessibleActions
-            contentDescription = state.appFor(AppContent(key.app))?.label ?: key.app.pkg
+            contentDescription = description
             onClick { state.launch(AppContent(key.app), null); true }
         }
 }
