@@ -49,6 +49,8 @@ class FolderSingletonFilmTest {
             var label by mutableStateOf("starting")
             var pointer by mutableStateOf(Offset.Zero)
             var pressed by mutableStateOf(false)
+            val haptics = mutableListOf<Pair<Long, Boolean>>()
+            val hapticTrace = StringBuilder("uptime,case,armed\n")
             val trace = StringBuilder("uptime,case,collapse,start,end,landing,alpha\n")
             try {
                 waitFor("apps") { activity.graph.apps.apps.value.size >= 2 }
@@ -57,12 +59,12 @@ class FolderSingletonFilmTest {
                     activity.setContent {
                         val scope = rememberCoroutineScope()
                         state = remember { LauncherState(activity.graph, scope, activity) { keys -> if (reject) keys.toSet() else emptySet() } }
-                        SideEffect { initialized = true }
+                        SideEffect { initialized = true; state.mergeFeedback = { haptics += SystemClock.uptimeMillis() to it; hapticTrace.append("${SystemClock.uptimeMillis()},$label,$it\n") } }
                         var frame by remember { mutableLongStateOf(0) }
                         LaunchedEffect(Unit) {
                             while (true) withFrameNanos {
                                 frame = SystemClock.uptimeMillis()
-                                trace.append("$frame,$label,${state.folderCollapses.values.firstOrNull()?.progress?.value},${state.folderCollapses.values.firstOrNull()?.start},${state.appIconBounds[1]},${state.folderLanding != null},${state.drag?.visualAlpha}\n")
+                                trace.append("$frame,$label,${state.folderCollapses.values.firstOrNull()?.progress?.value},${state.folderCollapses.values.firstOrNull()?.start},${state.appIconBounds[1]},${state.folderLanding != null},${state.drag?.visualAlpha},${state.folderCollapses.values.firstOrNull()?.frame},${state.folderCollapses.values.firstOrNull()?.surfaceFrame}\n")
                             }
                         }
                         Box(Modifier.fillMaxSize()) {
@@ -158,11 +160,71 @@ class FolderSingletonFilmTest {
                 main { activity.graph.layout.edit { Edits.add(it, AppContent(apps[1]), 2, 5) } }
                 SystemClock.sleep(300); approach(point { state.appIconBounds.getValue(3).center })
                 waitFor("merge armed") { state.mergeReady == 3L }
-                main { assertEquals(1f, state.drag!!.visualAlpha) }
+                main { assertEquals(1f, state.drag!!.visualAlpha); assertEquals(listOf(true), haptics.map { it.second }) }
+                // Leaving an armed candidate emits exactly one exit; dwelling again emits one arm.
+                approach(feed())
+                main { assertEquals(listOf(true, false), haptics.map { it.second }) }
+                approach(point { state.appIconBounds.getValue(3).center })
+                waitFor("merge rearmed") { state.mergeReady == 3L }
+                main { assertEquals(listOf(true, false, true), haptics.map { it.second }) }
                 SystemClock.sleep(500)
                 instrumentation.uiAutomation.takeScreenshot().also { bitmap -> File(directory, "opaque-hover.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle() }
                 release()
-                main { assertEquals(2, (state.graph.layout.layout.value.items.first { it.id == 3L }.content as FolderContent).entries.size) }
+                main {
+                    assertEquals(2, (state.graph.layout.layout.value.items.first { it.id == 3L }.content as FolderContent).entries.size)
+                    assertEquals(listOf(true, false, true), haptics.map { it.second })
+                }
+                reset("10 haptic early exit switch scroll cancel reject")
+                main {
+                    haptics.clear()
+                    activity.graph.layout.edit { Edits.add(Edits.add(Edits.add(it, AppContent(apps[1]), 2, 3), AppContent(apps[0]), 0, 3), AppContent(apps[1]), 0, 12) }
+                }
+                SystemClock.sleep(300)
+                begin(point { state.appIconBounds.getValue(2).center })
+                fun moveAnchor(anchor: Offset) {
+                    send(MotionEvent.ACTION_MOVE, point { anchor - state.drag!!.anchorOffset })
+                }
+                moveAnchor(point { state.appIconBounds.getValue(3).center }); SystemClock.sleep(40)
+                moveAnchor(point { state.gridCoords!!.localToRoot(Offset(state.cellW * 4.5f, state.cellH * 2.5f)) }); SystemClock.sleep(400)
+                main { assertTrue("early exit is silent", haptics.isEmpty()) }
+                approach(point { state.appIconBounds.getValue(3).center })
+                waitFor("first ready") { state.mergeReady == 3L }
+                moveAnchor(point { state.appIconBounds.getValue(4).center })
+                SystemClock.sleep(50)
+                main { assertEquals(listOf(true, false), haptics.map { it.second }); assertNull(state.mergeReady) }
+                waitFor("switched ready") { state.mergeReady == 4L }
+                main {
+                    assertEquals(listOf(true, false, true), haptics.map { it.second })
+                    state.feedScroll.dispatchRawDelta(30f)
+                    state.refreshDragTargets()
+                    assertEquals(listOf(true, false, true, false), haptics.map { it.second })
+                    assertNull(state.mergeReady)
+                }
+                approach(point { state.appIconBounds.getValue(4).center })
+                waitFor("post scroll ready") { state.mergeReady == 4L }
+                release(cancel = true)
+                main { assertEquals(listOf(true, false, true, false, true, false), haptics.map { it.second }) }
+                begin(point { state.appIconBounds.getValue(2).center })
+                approach(point { state.appIconBounds.getValue(3).center })
+                waitFor("rejected ready") { state.mergeReady == 3L }
+                main { reject = true }
+                release()
+                main { assertEquals(listOf(true, false, true, false, true, false, true, false), haptics.map { it.second }) }
+                reset("11 cleanup while survivor held"); open()
+                begin(point { state.panelMemberBounds.getValue(1L to "survive").center })
+                main { activity.graph.layout.edit { Edits.reconcileFolderApps(it, setOf(apps[0])) } }
+                waitFor("held survivor handed off") { state.drag == null && state.folderLanding == null && state.folderCollapses.isEmpty() }
+                send(MotionEvent.ACTION_CANCEL, pointer)
+                assertSurvivor()
+                reset("12 cleanup while survivor returning"); open()
+                begin(point { state.panelMemberBounds.getValue(1L to "survive").center }); approach(feed())
+                main {
+                    state.cancelDrag()
+                    activity.graph.layout.edit { Edits.reconcileFolderApps(it, setOf(apps[0])) }
+                }
+                waitFor("returning survivor handed off") { state.drag == null && state.folderLanding == null && state.folderCollapses.isEmpty() }
+                send(MotionEvent.ACTION_CANCEL, pointer)
+                assertSurvivor()
             } finally {
                 main {
                     if (initialized) { state.cancelDrag(); state.openFolder = null; state.menu = null }
@@ -173,6 +235,7 @@ class FolderSingletonFilmTest {
                 while (SystemClock.uptimeMillis() < deadline && (!file.exists() || File(file.path + ".new").exists() || runCatching { json.decodeFromString<HomeLayout>(file.readText()) != saved }.getOrDefault(true))) SystemClock.sleep(50)
                 assertEquals(saved, json.decodeFromString<HomeLayout>(file.readText()))
                 File(directory, "trace.csv").writeText(trace.toString())
+                File(directory, "haptics.csv").writeText(hapticTrace.toString())
                 File(directory, "restored.json").writeText(json.encodeToString(HomeLayout.serializer(), saved))
             }
         }
