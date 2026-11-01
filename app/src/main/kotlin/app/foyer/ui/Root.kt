@@ -135,6 +135,7 @@ fun FoyerRoot(state: LauncherState) {
                     Box(Modifier.fillMaxSize()) {
                         MergePreviewOverlay(state, layout)
                         DragGhost(state, iconSize = state.iconSize)
+                        LargeFolderDropOutline(state)
                         FolderCollapseOverlay(state)
                         FolderLandingOverlay(state, layout)
                     }

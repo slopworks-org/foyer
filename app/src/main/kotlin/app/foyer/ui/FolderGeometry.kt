@@ -3,6 +3,7 @@ package app.foyer.ui
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import app.foyer.data.FolderContent
 import app.foyer.data.AppKey
 
 internal enum class DropLayer { Panel, Dock, Feed }
@@ -75,8 +76,7 @@ internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index:
     val normalized = folderPreviewMembers(count, large).find { it.index == index }?.center ?: Offset(.5f, .5f)
     val center = if (large) {
         val padding = inset
-        Offset(surface.left + padding + (surface.width - 2 * padding) * normalized.x,
-            surface.top + padding + (surface.height - 2 * padding) * normalized.y)
+        largeFolderCell(surface, index, padding).center
     } else {
         Offset(surface.left + inset + (surface.width - 2 * inset) * normalized.x,
             surface.top + inset + (surface.height - 2 * inset) * normalized.y)
@@ -121,11 +121,19 @@ internal fun folderLandingClip(frame: Rect, viewport: Rect, progress: Float): Re
     return androidx.compose.ui.geometry.lerp(frame, visible, ((progress - .65f) / .35f).coerceIn(0f, 1f))
 }
 
+/** Fixed cell geometry shared by hit testing, landing centers and the visible rim. */
+internal fun largeFolderCell(surface: Rect, slot: Int, inset: Float): Rect {
+    val grid = surface.deflate(inset)
+    val size = Size(grid.width / 3, grid.height / 3)
+    return Rect(Offset(grid.left + size.width * (slot % 3), grid.top + size.height * (slot / 3)), size)
+}
+
 /** Absolute large-folder cells share the rendered grid's inset and never compress holes. */
 internal fun largeFolderSlot(point: Offset, surface: Rect, inset: Float): Int {
     val grid = surface.deflate(inset)
-    val column = ((point.x - grid.left) / (grid.width / 3)).toInt().coerceIn(0, 2)
-    val row = ((point.y - grid.top) / (grid.height / 3)).toInt().coerceIn(0, 2)
+    val cell = largeFolderCell(surface, 0, inset)
+    val column = ((point.x - grid.left) / cell.width).toInt().coerceIn(0, 2)
+    val row = ((point.y - grid.top) / cell.height).toInt().coerceIn(0, 2)
     return row * 3 + column
 }
 
@@ -148,4 +156,15 @@ internal fun advanceCollapseFrame(frame: Rect, destination: Rect, previous: Floa
     val singleton = if (surface) destination else folderMemberStart(destination, false, 1, 0, icon, 0f)
     val closed = advance(frame, singleton, collapseClose(previous), collapseClose(next))
     return advance(closed, destination, collapseGrow(previous), collapseGrow(next))
+}
+
+/** Resulting cell and order, including sparse absolute slots and repeated app occurrences. */
+internal data class FolderDropPreview(val folderId: Long, val folder: FolderContent, val entryId: String, val slot: Int) {
+    val panelOrder get() = folder.entries.map { if (it.id == entryId) null else it }
+}
+
+internal fun folderDropPreview(id: Long, folder: FolderContent, entryId: String): FolderDropPreview? {
+    val slot = if (folder.large) folder.slotEntries.indexOfFirst { it?.id == entryId }
+        else folder.entries.indexOfFirst { it.id == entryId }
+    return if (slot < 0) null else FolderDropPreview(id, folder, entryId, slot)
 }

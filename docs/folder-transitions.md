@@ -43,3 +43,15 @@ through the singleton geometry mathematically. Compose's motion duration scale a
 to both phases; disabled motion completes directly without persisting an intermediate
 singleton. New drag ownership or authoritative replacement removes the snapshot, and
 identity-checked effect cleanup cannot delete a newer collapse.
+
+Folder app drops mark the resulting cell with the desktop landing treatment: 4dp
+inset, 14% fill, 45% outline and a 1.5dp stroke. Surface-relative color keeps the
+frame legible in both themes. Drawing behind the cell preserves icon measurement,
+gesture ownership and lazy placement; the panel grid clips the frame while scrolling.
+Large slots are smaller than the lifted icon, so their measured cell rim draws above
+the opaque drag icon while their fill stays below it. Dense large slots use a 1dp
+inset and quarter-icon corner radius so the rim remains distinct from icon artwork.
+The preview's order and occurrence ID come from the same transfer plan as release,
+including fifth-item reflow, duplicate apps, sparse large slots and swaps. Invalid
+plans have no landing frame. Release removes the frame immediately while retaining
+the pending order through validation; cancel restores the original order.
