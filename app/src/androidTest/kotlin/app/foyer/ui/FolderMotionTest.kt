@@ -199,7 +199,14 @@ class FolderMotionTest {
                 rule.mainClock.advanceTimeBy(400)
             }
             rule.runOnIdle { assertNotNull("pointer must start a drag: $case", state.drag) }
-            val end = rule.runOnIdle { (if (opened) state.folderHitGridBounds!!.center else state.folderBounds[folderId]!!.center) - state.drag!!.anchorOffset }
+            val end = rule.runOnIdle {
+                val destination = if (case == "fast-large") {
+                    val surface = state.folderSurfaceBounds.getValue(folderId)
+                    val inset = state.folderInsetPx
+                    Offset(surface.left + inset + (surface.width - 2 * inset) * 5 / 6, surface.center.y)
+                } else if (opened) state.folderHitGridBounds!!.center else state.folderBounds[folderId]!!.center
+                destination - state.drag!!.anchorOffset
+            }
             val direction = if (case == "away-open") Offset(-1f, 1f) else Offset(1f, 1f)
             val distance = if (case == "slow-open") 20f else 320f
             root.performTouchInput { moveTo(end - direction * distance, 200) }

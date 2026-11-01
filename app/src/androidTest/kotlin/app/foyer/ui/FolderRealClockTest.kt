@@ -100,7 +100,13 @@ class FolderRealClockTest {
                     var end = Offset.Zero
                     main {
                         assertNotNull(state.drag)
-                        end = (if (case.startsWith("open")) state.folderHitGridBounds!!.center else state.folderBounds[folderId]!!.center) - state.drag!!.anchorOffset
+                        val destination = if (case == "large") {
+                            // Explicit large drops address a cell; use the first empty slot (5).
+                            val surface = state.folderSurfaceBounds.getValue(folderId)
+                            val inset = state.folderInsetPx
+                            Offset(surface.left + inset + (surface.width - 2 * inset) * 5 / 6, surface.center.y)
+                        } else if (case.startsWith("open")) state.folderHitGridBounds!!.center else state.folderBounds[folderId]!!.center
+                        end = destination - state.drag!!.anchorOffset
                     }
                     val direction = when (case) {
                         "sideways", "pause" -> Offset(1f, 0f)
