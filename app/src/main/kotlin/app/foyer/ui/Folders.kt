@@ -535,14 +535,18 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val panel = state.folderTransitionId == landing.folderId
     val memberVisual = if (panel) state.folderMemberFrames[landing.folderId to landing.entryId]?.invoke() else null
     val source = landing.source
+    val returningMember = (source?.source as? DragSource.Member)?.takeIf { state.folderTransitionId == it.folderId }
+    val returnVisual = returningMember?.let { state.folderMemberFrames[it.folderId to it.entryId]?.invoke() }
     val sourceBounds = when (val from = source?.source) {
         is DragSource.Placed -> state.appIconBounds[from.item.id].takeIf { live -> live != null && layout.items.any { it.id == from.item.id && it.content == from.item.content } }
         is DragSource.Member -> {
             val fromFolder = layout.items.find { it.id == from.folderId }?.content as? FolderContent
             val memberIndex = fromFolder?.entries?.indexOfFirst { it.id == from.entryId } ?: -1
-            if (memberIndex < 0) null else if (state.folderTransitionId == from.folderId) state.panelMemberBounds[from.folderId to from.entryId]
+            if (memberIndex < 0) null else if (state.folderTransitionId == from.folderId) returnVisual?.bounds ?: state.folderGridBounds?.let {
+                folderGridIcon(it, memberIndex, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
+            }
             else state.memberBounds[from.folderId to from.entryId] ?: state.folderSurfaceBounds[from.folderId]?.let {
-                folderMemberStart(it, fromFolder!!.large, fromFolder.apps.size, memberIndex, icon, with(density) { 5.dp.toPx() })
+                folderMemberStart(it, fromFolder!!.large, if (fromFolder.large) 9 else fromFolder.apps.size, if (fromFolder.large) fromFolder.entries[memberIndex].slot ?: memberIndex else memberIndex, icon, with(density) { (if (fromFolder.large) 16.dp else 5.dp).toPx() })
             }
         }
         is DragSource.New -> source.origin.let { Rect(it - Offset(icon / 2, icon / 2), Size(icon, icon)) }
@@ -553,9 +557,9 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
         }
         else if (folder != null && liveSurface != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) 16.dp else 5.dp).toPx() }) else null
     val destination = end ?: surface
-    val viewport = if (panel && !landing.returning) state.folderContentViewport else null
-    val destinationVisible = if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New else if (panel) viewport?.overlaps(destination) == true else visible
-    val destinationAlpha = if (destinationVisible) memberVisual?.alpha ?: 1f else 0f
+    val viewport = if (if (landing.returning) returningMember != null else panel) state.folderContentViewport else null
+    val destinationVisible = if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible
+    val destinationAlpha = if (destinationVisible) (if (landing.returning) returnVisual?.alpha else memberVisual?.alpha) ?: 1f else 0f
     val target by rememberUpdatedState(if (landing.validated && end != null) destination.center else null)
     val canFinish by rememberUpdatedState(end != null || folder == null || landing.returning)
     val velocity = remember(landing) { boundedReleaseVelocity(landing.velocity, icon * 18f) }
@@ -594,14 +598,14 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     }
     val frameSize = start.width + (destination.width - start.width) * progress
     val frame = Rect(motion.position - Offset(frameSize / 2, frameSize / 2), Size(frameSize, frameSize))
-    AppIcon(landing.icon, state.iconSize, Modifier.testTag("folder-landing")
+    AppIcon(landing.icon, state.iconSize, Modifier
         .offset { IntOffset((frame.center.x - icon / 2).roundToInt(), (frame.center.y - icon / 2).roundToInt()) }
         .graphicsLayer {
             scaleX = frame.width / icon
             scaleY = scaleX
             val incomingAlpha = landing.initialAlpha + (1f - landing.initialAlpha) * progress
             alpha = incomingAlpha * (1f + (destinationAlpha - 1f) * ((progress - .65f) / .35f).coerceIn(0f, 1f))
-        }.drawWithContent {
+        }.testTag("folder-landing").drawWithContent {
             if (viewport == null || frame.width <= 0f || frame.height <= 0f) drawContent()
             else {
                 val clip = folderLandingClip(frame, viewport, progress)

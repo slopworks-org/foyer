@@ -187,6 +187,20 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     internal val mergePreviews = androidx.compose.runtime.mutableStateListOf<MergePreview>()
     private var lastFeedScroll = 0
     private var validationJob: kotlinx.coroutines.Job? = null
+    private var pendingValidation: kotlinx.coroutines.CompletableDeferred<Set<app.foyer.data.AppKey>?>? = null
+
+    /** One worker may outlive the UI deadline if Binder blocks; never queue more behind it. */
+    private suspend fun validateWithinDeadline(keys: List<app.foyer.data.AppKey>): Set<app.foyer.data.AppKey>? {
+        if (pendingValidation?.isCompleted == false) return null
+        val result = kotlinx.coroutines.CompletableDeferred<Set<app.foyer.data.AppKey>?>()
+        pendingValidation = result
+        // A sibling of the UI waiter: cancellation of await must not wait for blocking I/O.
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { result.complete(validateDropApps(keys)) }
+            catch (_: Exception) { result.complete(null) }
+        }
+        return kotlinx.coroutines.withTimeoutOrNull(1500) { result.await() }
+    }
     private var menuOwner: Long? = null
     var menu by mutableStateOf<MenuSpec?>(null)
     var selectedWidget by mutableStateOf<Long?>(null)
@@ -581,7 +595,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         validationJob = scope.launch {
             val keys = listOfNotNull(key, ((target as? DropTarget.Merge)?.target?.content as? AppContent)?.app)
             val missing = try {
-                kotlinx.coroutines.withTimeoutOrNull(1500) { validateDropApps(keys) }
+                validateWithinDeadline(keys)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

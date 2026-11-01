@@ -4,6 +4,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import app.foyer.MainActivity
 import app.foyer.data.AppContent
@@ -19,6 +21,104 @@ import org.junit.Test
 /** Real uptime recognition plus injected authoritative validation; all fixtures go through Edits. */
 class FolderMorphTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+
+    @Test fun panelAndDockCancellationReturnToIconGeometry() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        var state: LauncherState? = null
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val key = graph.apps.apps.value.first().key
+        try {
+            graph.layout.edit {
+                Edits.add(Edits.add(HomeLayout(seeded = true), FolderContent(listOf(key, key)), 1, 2), AppContent(key), 0, 0, dock = true)
+            }
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                val current = remember { LauncherState(graph, scope, rule.activity) }
+                state = current
+                FoyerRoot(current)
+            }
+            rule.waitForIdle()
+            for (panel in listOf(true, false)) {
+                rule.runOnUiThread { state!!.openFolder = if (panel) 1 else null }
+                rule.waitForIdle()
+                var expected = Rect.Zero
+                rule.mainClock.autoAdvance = false
+                rule.runOnUiThread {
+                    val current = state!!
+                    val source = if (panel) {
+                        val entry = (graph.layout.layout.value.items.first().content as FolderContent).entries.first()
+                        expected = current.folderMemberFrames.getValue(1L to entry.id).invoke()!!.bounds
+                        DragSource.Member(1, key, entry.id)
+                    } else {
+                        val item = graph.layout.layout.value.items.last()
+                        expected = current.appIconBounds.getValue(item.id)
+                        DragSource.Placed(item)
+                    }
+                    current.startDrag(DragSession(source, null, Offset.Zero, expected.center))
+                    current.moveDrag(expected.center + Offset(100f, -150f))
+                    current.cancelDrag()
+                }
+                var last = Rect.Zero
+                for (frame in 0..120) {
+                    rule.mainClock.advanceTimeBy(16)
+                    val nodes = rule.onAllNodesWithTag("folder-landing", useUnmergedTree = true).fetchSemanticsNodes()
+                    if (nodes.isNotEmpty()) last = nodes.single().boundsInRoot
+                    else if (frame > 0) break
+                }
+                assertEquals(expected.center.x, last.center.x, 3f)
+                assertEquals(expected.center.y, last.center.y, 3f)
+                assertEquals(expected.width, last.width, 3f)
+                rule.mainClock.autoAdvance = true
+                rule.waitForIdle()
+            }
+        } finally {
+            rule.runOnUiThread { state?.cancelDrag(); graph.layout.edit { saved } }
+            rule.mainClock.autoAdvance = true
+        }
+    }
+
+    @Test fun blockingValidationCannotHoldTheVisualDeadline() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        var state: LauncherState? = null
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val key = graph.apps.apps.value.first().key
+        try {
+            graph.layout.edit { Edits.add(HomeLayout(seeded = true), AppContent(key), 0, 2) }
+            val initial = graph.layout.layout.value
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                val current = remember { LauncherState(graph, scope, rule.activity) {
+                    started.countDown()
+                    release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                    emptySet()
+                } }
+                state = current
+                FoyerRoot(current)
+            }
+            rule.waitForIdle()
+            rule.runOnUiThread {
+                val current = state!!
+                val item = initial.items.single()
+                current.startDrag(DragSession(DragSource.Placed(item), null, Offset.Zero, current.appIconBounds.getValue(item.id).center))
+                current.endDrag()
+            }
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            rule.waitUntil(4000) { state!!.folderLanding?.returning == true || state!!.drag == null }
+            assertEquals(1L, release.count)
+            assertEquals(initial, graph.layout.layout.value)
+            rule.waitUntil(5000) { state!!.drag == null && state!!.folderLanding == null }
+            release.countDown()
+            rule.waitForIdle()
+            assertEquals(initial, graph.layout.layout.value)
+        } finally {
+            release.countDown()
+            rule.runOnUiThread { state?.cancelDrag(); graph.layout.edit { saved } }
+        }
+    }
 
     @Test fun prearmReleaseReturnsAndValidationTimeoutNeverCommitsLate() {
         val graph = rule.activity.graph

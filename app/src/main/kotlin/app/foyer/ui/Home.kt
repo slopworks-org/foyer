@@ -490,7 +490,7 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
     val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
     Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty(); stateDescription = readiness }, contentAlignment = Alignment.Center) {
         Box(Modifier.onGloballyPositioned {
-            if (content is AppContent && !item.dock) state.appIconBounds[item.id] = it.boundsInRoot()
+            if (content is AppContent) state.appIconBounds[item.id] = it.boundsInRoot()
         }) {
             if (content is ShortcutContent) Box(Modifier.scale(scale)) { ShortcutIcon(state, shortcut, app, iconSize) }
             else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer {
