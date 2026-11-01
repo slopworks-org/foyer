@@ -139,7 +139,25 @@ class FolderSingletonFilmTest {
                 reset("02 open small move to feed"); open()
                 begin(point { state.panelMemberBounds.getValue(1L to "depart").center }); approach(feed()); release(); assertSurvivor()
                 reset("03 large sparse slot8 survivor", large = true)
-                begin(point { state.memberBounds.getValue(1L to "depart").center }); approach(feed()); release(); assertSurvivor()
+                begin(point { state.memberBounds.getValue(1L to "depart").center }); approach(feed()); release()
+                main {
+                    val item = state.graph.layout.layout.value.items.first { it.id == 1L }
+                    assertEquals(2, item.w); assertEquals(2, item.h)
+                    assertEquals(8, (item.content as FolderContent).entries.single().slot)
+                    assertTrue(state.folderCollapses.isEmpty())
+                }
+                reset("03a large frame moves then releases", large = true)
+                begin(point { state.appIconBounds.getValue(2).center })
+                approach(point { largeFolderCell(state.folderSurfaceBounds.getValue(1), 4, state.folderInsetPx).center })
+                main { assertEquals(1f, state.drag!!.visualAlpha) }
+                approach(point { largeFolderCell(state.folderSurfaceBounds.getValue(1), 5, state.folderInsetPx).center })
+                main { assertEquals(5, state.folderDropPreview(state.drag!!)!!.slot) }
+                instrumentation.uiAutomation.takeScreenshot().also { bitmap ->
+                    File(directory, "large-frame-before-release.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    bitmap.recycle()
+                }
+                release()
+                main { assertNotNull((state.graph.layout.layout.value.items.first().content as FolderContent).slotEntries[5]) }
                 reset("04 duplicate copies open move", duplicate = true); open()
                 begin(point { state.panelMemberBounds.getValue(1L to "depart").center }); approach(feed()); release(); assertSurvivor()
                 reset("05 empty destination 0 to 1", emptyTarget = true)

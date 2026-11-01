@@ -134,8 +134,8 @@ fun FoyerRoot(state: LauncherState) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Box(Modifier.fillMaxSize()) {
                         MergePreviewOverlay(state, layout)
-                        DragGhost(state, iconSize = state.iconSize)
                         FolderDropOutline(state)
+                        DragGhost(state, iconSize = state.iconSize)
                         FolderCollapseOverlay(state)
                         FolderLandingOverlay(state, layout)
                     }

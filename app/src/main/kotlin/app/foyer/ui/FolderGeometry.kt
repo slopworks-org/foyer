@@ -128,6 +128,10 @@ internal fun largeFolderCell(surface: Rect, slot: Int, inset: Float): Rect {
     return Rect(Offset(grid.left + size.width * (slot % 3), grid.top + size.height * (slot / 3)), size)
 }
 
+/** Feedback may overflow its dense cell; the hit region and landing center stay fixed. */
+internal fun largeFolderFeedbackFrame(cell: Rect, diameter: Float): Rect =
+    Rect(cell.center - Offset(diameter / 2, diameter / 2), Size(diameter, diameter))
+
 /** Absolute large-folder cells share the rendered grid's inset and never compress holes. */
 internal fun largeFolderSlot(point: Offset, surface: Rect, inset: Float): Int {
     val grid = surface.deflate(inset)

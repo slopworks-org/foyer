@@ -706,8 +706,13 @@ internal fun FolderDropOutline(state: LauncherState) {
             Size(state.cellW, state.cellH))
     } else {
         val surface = state.folderSurfaceBounds[target.folderId] ?: return
-        largeFolderCell(surface, target.slot, state.folderInsetPx)
+        val cell = largeFolderCell(surface, target.slot, state.folderInsetPx)
+        // Leave room for artwork held off-center within the dense slot as well as the rim.
+        val diameter = with(LocalDensity.current) { (state.iconSize * DRAG_ICON_SCALE + 40.dp).toPx() }
+        largeFolderFeedbackFrame(cell, diameter)
     }
+    val left by animateFloatAsState(bounds.left, tween(100), label = "drop-frame-x")
+    val top by animateFloatAsState(bounds.top, tween(100), label = "drop-frame-y")
     val viewport = state.viewportCoords?.takeIf { it.isAttached }?.boundsInRoot() ?: return
     val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: Float.POSITIVE_INFINITY
     val density = LocalDensity.current
@@ -715,14 +720,13 @@ internal fun FolderDropOutline(state: LauncherState) {
     Box(Modifier.fillMaxSize().drawWithContent {
         clipRect(viewport.left, viewport.top, viewport.right, minOf(viewport.bottom, dockTop)) {
             val panel = state.folderPanelBounds
-            // An empty folder converts into this desktop cell; otherwise the foreground
-            // panel must occlude feedback belonging to a neighboring large folder.
+            // The foreground panel occludes feedback belonging to a neighboring large folder.
             if (panel == null || standalone != null) this@drawWithContent.drawContent()
             else clipRect(panel.left, panel.top, panel.right, panel.bottom,
                 androidx.compose.ui.graphics.ClipOp.Difference) { this@drawWithContent.drawContent() }
         }
     }) {
-        Box(Modifier.offset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
+        Box(Modifier.offset { IntOffset(left.roundToInt(), top.roundToInt()) }
             .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
             .testTag("folder-drop-outline-${target.folderId}")
             .landingFrame(color, if (standalone != null) state.iconSize / 2 else state.iconSize / 4,

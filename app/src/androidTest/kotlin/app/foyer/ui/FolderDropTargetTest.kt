@@ -2,6 +2,7 @@ package app.foyer.ui
 
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
@@ -10,6 +11,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import app.foyer.R
 import app.foyer.MainActivity
 import app.foyer.data.*
 import app.foyer.graph
@@ -29,7 +31,7 @@ class FolderDropTargetTest {
         var validationGate: kotlinx.coroutines.CompletableDeferred<Set<AppKey>>? = null
         lateinit var state: LauncherState
         rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
-        val app = graph.apps.apps.value.first()
+        val app = graph.apps.apps.value.first { it.key.pkg.contains("calendar") }
         try {
             rule.activity.setContent {
                 val scope = rememberCoroutineScope()
@@ -60,7 +62,14 @@ class FolderDropTargetTest {
                     rule.runOnIdle { light = isLight }
                     rule.mainClock.advanceTimeBy(800)
                     rule.waitForIdle()
-                    val file = File(rule.activity.getExternalFilesDir(null), "drop-$name-${if (isLight) "light" else "dark"}.png")
+                    val directory = File(rule.activity.getExternalFilesDir(null), "large-retention").apply { mkdirs() }
+                    val file = File(directory, "drop-$name-${if (isLight) "light" else "dark"}.png")
+                    rule.runOnIdle {
+                        state.drag?.let { drag ->
+                            File(directory, "${file.nameWithoutExtension}.txt").writeText(
+                                "anchor=${drag.anchor}; window=${state.rootCoords!!.localToWindow(Offset.Zero)}; iconPx=${with(rule.density) { state.iconSize.toPx() }}; scale=${drag.visualScale}; alpha=${drag.visualAlpha}")
+                        }
+                    }
                     // Allow SurfaceFlinger to latch the themed frame; the Compose clock is paused.
                     InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                     android.os.SystemClock.sleep(100)
@@ -109,16 +118,64 @@ class FolderDropTargetTest {
                 }
                 rule.mainClock.advanceTimeBy(800)
                 val p = preview()
-                assertEquals(AppContent(app.key), p.standalone?.content)
                 val markerBounds = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-                val expected = rule.runOnIdle { state.gridCoords!!.localToRoot(Offset(state.cellW, state.cellH * 2)) }
-                assertEquals(expected.x, markerBounds.left, 1.1f)
-                assertEquals(expected.y, markerBounds.top, 1.1f)
-                assertEquals(state.cellW, markerBounds.width, 1.1f)
+                if (large) {
+                    assertNull(p.standalone)
+                    val cell = rule.runOnIdle { largeFolderCell(state.folderSurfaceBounds.getValue(1), p.slot, state.folderInsetPx) }
+                    assertEquals(cell.center.x, markerBounds.center.x, 1.1f)
+                    assertEquals(cell.center.y, markerBounds.center.y, 1.1f)
+                    rule.runOnIdle {
+                        state.showItemMenu(graph.layout.layout.value.items.single(), cell)
+                        assertFalse(state.menu!!.actions.any { it.label == R.string.folder_shrink })
+                        state.menu = null
+                    }
+                } else {
+                    assertEquals(AppContent(app.key), p.standalone?.content)
+                    assertEquals(state.cellW, markerBounds.width, 1.1f)
+                }
                 capture("empty-${if (large) "large" else "small"}")
                 rule.runOnIdle { state.endDrag() }
                 rule.waitUntil(10000) { rule.mainClock.advanceTimeBy(100); state.drag == null }
-                assertEquals(AppContent(app.key), graph.layout.layout.value.items.single().content)
+                if (large) {
+                    val retained = folder()
+                    assertTrue(retained.large)
+                    assertEquals(p.slot, retained.entries.single().slot)
+                    rule.runOnIdle {
+                        assertTrue(state.folderCollapses.isEmpty())
+                        val item = graph.layout.layout.value.items.single()
+                        state.showItemMenu(item, markerBounds)
+                        assertFalse(state.menu!!.actions.any { it.label == R.string.folder_shrink })
+                        state.menu = null
+                        state.showMemberMenu(1, retained.entries.single(), markerBounds)
+                        assertFalse(state.menu!!.actions.any { it.label == R.string.folder_shrink })
+                        state.menu = null
+                    }
+                    rule.mainClock.advanceTimeBy(800)
+                    capture("retained-large-one")
+                } else assertEquals(AppContent(app.key), graph.layout.layout.value.items.single().content)
+            }
+            for (count in 0..2) {
+                fixture(count, true)
+                rule.runOnIdle {
+                    state.showItemMenu(graph.layout.layout.value.items.single(), state.folderSurfaceBounds.getValue(1))
+                    assertEquals(count >= 2, state.menu!!.actions.any { it.label == R.string.folder_shrink })
+                    assertTrue(state.menu!!.actions.any { it.label == R.string.action_remove })
+                }
+                capture("large-$count-menu")
+                if (count == 2) {
+                    val staleShrink = rule.runOnIdle { state.menu!!.actions.first { it.label == R.string.folder_shrink } }
+                    rule.runOnIdle { graph.layout.edit { Edits.folder(it, 1, folder().withoutEntry("e0")) } }
+                    rule.mainClock.advanceTimeBy(800)
+                    rule.runOnIdle {
+                        assertNull(state.menu)
+                        val before = graph.layout.layout.value
+                        staleShrink.onClick()
+                        assertSame(before, graph.layout.layout.value)
+                        assertEquals(7, folder().entries.single().slot)
+                        assertTrue(state.folderCollapses.isEmpty())
+                    }
+                }
+                rule.runOnIdle { state.menu = null }
             }
             for (outcome in listOf("accept", "reject", "cancel")) {
                 fixture(24)
@@ -210,7 +267,7 @@ class FolderDropTargetTest {
             assertEquals(1L, preview().folderId)
             capture("large-behind-panel")
             // Both installed artwork styles, centered and offset within the same slot.
-            val solidApp = graph.apps.apps.value.first { it.key != app.key }
+            val solidApp = graph.apps.apps.value.first { it.key.pkg.contains("camera") }
             fixture(2, true)
             for (artwork in listOf(app, solidApp)) for (offset in listOf(0f, .28f)) {
                 rule.runOnIdle {
@@ -221,6 +278,14 @@ class FolderDropTargetTest {
                 }
                 rule.mainClock.advanceTimeBy(800)
                 marker(preview()).assertExists()
+                rule.runOnIdle { assertEquals(1f, state.drag!!.visualAlpha) }
+                val rim = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                val lifted = with(rule.density) { (state.iconSize * state.drag!!.visualScale).toPx() }
+                assertTrue(rim.width > lifted + with(rule.density) { 36.dp.toPx() })
+                val anchor = rule.runOnIdle { state.drag!!.anchor }
+                val innerPadding = with(rule.density) { 5.5.dp.toPx() }
+                assertTrue(anchor.x - lifted / 2 >= rim.left + innerPadding)
+                assertTrue(anchor.x + lifted / 2 <= rim.right - innerPadding)
                 capture("large-artwork-${artwork.key.pkg}-${if (offset == 0f) "center" else "offset"}")
             }
             fixture(2, true)

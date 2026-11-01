@@ -856,13 +856,15 @@ private fun DockSearchBar(modifier: Modifier) {
     }
 }
 
+internal const val DRAG_ICON_SCALE = 1.12f
+
 /** Icon following the finger while dragging apps and shortcuts. */
 @Composable
 fun DragGhost(state: LauncherState, iconSize: Dp) {
     val s = state.drag ?: return
     if (s.isWidget || state.folderLanding != null) return
     val lift = remember(s) { Animatable(1f) }
-    LaunchedEffect(s) { lift.animateTo(1.12f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)) }
+    LaunchedEffect(s) { lift.animateTo(DRAG_ICON_SCALE, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)) }
     val folder = s.content as? FolderContent
     if (folder != null) {
         val density = LocalDensity.current

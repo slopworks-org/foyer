@@ -11,6 +11,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FolderGeometryTest {
+    @Test fun largeFeedbackOverflowsCellWithoutMovingItsLandingCenter() {
+        val surface = Rect(10f, 20f, 210f, 220f)
+        for (slot in 0..8) {
+            val cell = largeFolderCell(surface, slot, 8f)
+            val frame = largeFolderFeedbackFrame(cell, 84f)
+            assertEquals(cell.center.x, frame.center.x, .001f)
+            assertEquals(cell.center.y, frame.center.y, .001f)
+            assertEquals(84f, frame.width, .001f)
+            assertTrue(frame.width > cell.width)
+            assertEquals(slot, largeFolderSlot(frame.center, surface, 8f))
+        }
+    }
+
     @Test fun adaptiveColumnsAndFifthInsertionPreserveRelativeOrder() {
         val keys = (0..5).map { AppKey("pkg$it", "Main", 0) }
         for (count in 0..6) {
