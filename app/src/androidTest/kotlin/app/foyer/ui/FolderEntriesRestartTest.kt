@@ -21,12 +21,17 @@ class FolderEntriesRestartTest {
     }
 
     @Test fun stage() {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("restartPhase") == "stage")
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             lateinit var activity: MainActivity
             scenario.onActivity { activity = it }
             val graph = activity.graph
             val directory = File(activity.getExternalFilesDir(null), "folder-entries").apply { mkdirs() }
-            File(directory, "restart-original.json").writeText(json.encodeToString(HomeLayout.serializer(), graph.layout.layout.value))
+            val backup = File(directory, "restart-original.json")
+            check(!backup.exists() || json.decodeFromString<HomeLayout>(backup.readText()) == graph.layout.layout.value) {
+                "Finish the previous restart verification before staging another fixture"
+            }
+            backup.writeText(json.encodeToString(HomeLayout.serializer(), graph.layout.layout.value))
             waitFor { graph.apps.apps.value.isNotEmpty() }
             val key = json.encodeToString(AppKey.serializer(), graph.apps.apps.value.first().key)
             // Exercise the same legacy decoder without writing home.json directly.
@@ -39,6 +44,7 @@ class FolderEntriesRestartTest {
     }
 
     @Test fun verifyAndRestore() {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("restartPhase") == "verify")
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             lateinit var activity: MainActivity
             scenario.onActivity { activity = it }
@@ -54,6 +60,7 @@ class FolderEntriesRestartTest {
             } finally {
                 activity.graph.layout.edit { original }
                 waitFor { LayoutStore(activity, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)).layout.value == original }
+                File(directory, "restart-original.json").delete()
             }
         }
     }
