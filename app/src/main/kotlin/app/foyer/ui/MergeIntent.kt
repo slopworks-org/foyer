@@ -19,3 +19,16 @@ internal data class MergeIntent(val candidate: Long? = null, val entered: Long =
     }
     fun blocksSwap(now: Long) = candidate != null || now < swapAfter
 }
+
+/** Emits readiness edges, never hover or animation callbacks. Release consumes without an exit. */
+internal class MergeReadiness(private val feedback: (Boolean) -> Unit) {
+    var ready: Long? = null
+        private set
+    fun update(next: Long?) {
+        if (next == ready) return
+        if (ready != null) feedback(false)
+        ready = next
+        if (next != null) feedback(true)
+    }
+    fun consume() { ready = null }
+}

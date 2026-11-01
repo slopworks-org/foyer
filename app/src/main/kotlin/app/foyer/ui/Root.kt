@@ -47,6 +47,13 @@ import kotlinx.coroutines.launch
 @Composable
 fun FoyerRoot(state: LauncherState) {
     val layout by state.graph.layout.layout.collectAsStateWithLifecycle()
+    val view = LocalView.current
+    SideEffect {
+        state.platformMergeFeedback = { armed ->
+            view.performHapticFeedback(if (armed) android.view.HapticFeedbackConstants.CONFIRM
+                else android.view.HapticFeedbackConstants.CLOCK_TICK)
+        }
+    }
     val density = LocalDensity.current
     state.observeFolderChanges(layout, with(density) { state.iconSize.toPx() }, with(density) { 5.dp.toPx() })
     val searchable by state.graph.searchable.collectAsStateWithLifecycle()

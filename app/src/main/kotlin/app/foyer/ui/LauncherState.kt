@@ -241,6 +241,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         private set
     var mergeReady by mutableStateOf<Long?>(null)
         private set
+    internal var mergeFeedback: ((Boolean) -> Unit)? = null
+    internal var platformMergeFeedback: (Boolean) -> Unit = {}
+    private val mergeReadiness = MergeReadiness { (mergeFeedback ?: platformMergeFeedback)(it) }
     private var mergeIntent = MergeIntent()
     internal val mergePreviews = androidx.compose.runtime.mutableStateListOf<MergePreview>()
     private var lastFeedScroll = 0
@@ -556,6 +559,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val next = mergeIntent.update(session.anchor, icons, now, scrolling)
         if (next.candidate != mergeIntent.candidate) {
             reverseMergePreviews()
+            mergeReadiness.update(null)
             mergeReady = null
         }
         mergeIntent = next
@@ -573,6 +577,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         mergeReady = candidate?.takeIf { id ->
             next.armed(now) && mergePreviews.any { it.target.id == id && !it.released && it.progress.value >= 1f }
         }
+        mergeReadiness.update(mergeReady)
         val id = (targetFor(session) as? DropTarget.Folder)?.id
         if (hoverFolder != id) {
             hoverJob?.cancel()
@@ -598,6 +603,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     private fun resetMerge() {
+        mergeReadiness.update(null)
         reverseMergePreviews()
         mergeIntent = MergeIntent()
         mergeCandidate = null
@@ -694,6 +700,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 if (flight != null) { flight.returning = true; flight.validated = true }
                 else { s.placedId?.let { dropOrigins[it] = s.anchor }; drag = null }
             }
+            if (applied != null) mergeReadiness.consume() else mergeReadiness.update(null)
             mergeCandidate = null
             mergeReady = null
             mergeIntent = MergeIntent()
