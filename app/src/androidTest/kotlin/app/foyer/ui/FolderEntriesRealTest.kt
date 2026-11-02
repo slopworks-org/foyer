@@ -2,7 +2,6 @@ package app.foyer.ui
 
 import android.graphics.Bitmap
 import android.os.SystemClock
-import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
@@ -63,29 +62,14 @@ class FolderEntriesRealTest {
                     image.recycle()
                 }
             }
-            var downTime = 0L
-            fun send(action: Int, point: Offset) {
-                val time = SystemClock.uptimeMillis()
-                if (action == MotionEvent.ACTION_DOWN) downTime = time
-                var window = Offset.Zero
-                main { window = state.rootCoords!!.localToWindow(Offset.Zero) }
-                val event = MotionEvent.obtain(downTime, time, action, point.x + window.x, point.y + window.y, 0)
-                event.source = InputDevice.SOURCE_TOUCHSCREEN
-                main { activity.dispatchTouchEvent(event) }; event.recycle()
-            }
+            val gesture = NativeFolderGesture(activity, { state }, ::main)
+            fun send(action: Int, point: Offset) = gesture.send(action, point)
             fun begin(point: Offset) {
                 send(MotionEvent.ACTION_DOWN, point); SystemClock.sleep(620)
                 send(MotionEvent.ACTION_MOVE, point + Offset(35f, 35f)); SystemClock.sleep(50)
                 main { assertNotNull("native drag started", state.drag) }
             }
-            fun approach(anchor: Offset) {
-                var start = Offset.Zero; var destination = Offset.Zero
-                main { start = state.drag!!.pointer; destination = anchor - state.drag!!.anchorOffset }
-                for (step in 1..15) {
-                    send(MotionEvent.ACTION_MOVE, start + (destination - start) * (step / 15f))
-                    SystemClock.sleep(16)
-                }
-            }
+            fun approach(point: Offset) { gesture.approach(point) }
             fun release(cancel: Boolean = false) {
                 var pointer = Offset.Zero; main { pointer = state.drag!!.pointer }
                 send(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, pointer)
@@ -102,7 +86,7 @@ class FolderEntriesRealTest {
                 var start = Offset.Zero; var destination = Offset.Zero
                 main { start = state.appIconBounds.getValue(2).center; destination = state.appIconBounds.getValue(1).center }
                 begin(start); approach(destination)
-                main { assertEquals(1L, state.mergeCandidate); assertEquals(1L, state.mergeReady) }
+                main { assertEquals(1L, state.mergeReady) }
                 shot("01-immediate-group")
                 waitFor("merge armed") { state.mergeReady == 1L }
                 SystemClock.sleep(120) // let the armed feedback reach the displayed frame

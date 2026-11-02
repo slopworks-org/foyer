@@ -3,7 +3,6 @@ package app.foyer.ui
 import android.content.res.Configuration
 import android.graphics.Paint
 import android.os.SystemClock
-import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -93,17 +92,12 @@ class FolderMorphFilmTest {
                 }
             }
             SystemClock.sleep(600)
-            var downTime = 0L
-            fun send(action: Int, point: Offset) {
-                val now = SystemClock.uptimeMillis()
-                if (action == MotionEvent.ACTION_DOWN) downTime = now
-                var window = Offset.Zero
-                main { window = state.rootCoords!!.localToWindow(Offset.Zero); pointer = point; pressed = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL }
-                val event = MotionEvent.obtain(downTime, now, action, point.x + window.x, point.y + window.y, 0)
-                event.source = InputDevice.SOURCE_TOUCHSCREEN
-                main { activity.dispatchTouchEvent(event); trace.append("$now,$label,touch-$action,${point.x},${point.y},,,,,\n") }
-                event.recycle()
+            val gesture = NativeFolderGesture(activity, { state }, ::main) { now, action, point ->
+                pointer = point
+                pressed = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL
+                trace.append("$now,$label,touch-$action,${point.x},${point.y},,,,,\n")
             }
+            fun send(action: Int, point: Offset) = gesture.send(action, point)
             fun begin(id: Long = 2) {
                 var start = Offset.Zero
                 main { start = state.appIconBounds.getValue(id).center }
@@ -111,11 +105,7 @@ class FolderMorphFilmTest {
                 send(MotionEvent.ACTION_MOVE, start + Offset(30f, 30f)); SystemClock.sleep(40)
                 main { assertNotNull(state.drag) }
             }
-            fun approach(point: Offset, steps: Int = 12) {
-                var start = Offset.Zero; var end = Offset.Zero
-                main { start = state.drag!!.pointer; end = point - state.drag!!.anchorOffset }
-                for (step in 1..steps) { send(MotionEvent.ACTION_MOVE, start + (end - start) * (step.toFloat() / steps)); SystemClock.sleep(16) }
-            }
+            fun approach(point: Offset, steps: Int = 12) = gesture.approach(point, steps)
             fun target(id: Long = 1): Offset { var point = Offset.Zero; main { point = state.appIconBounds.getValue(id).center }; return point }
             fun release(cancel: Boolean = false) {
                 var point = Offset.Zero; main { point = state.drag!!.pointer }

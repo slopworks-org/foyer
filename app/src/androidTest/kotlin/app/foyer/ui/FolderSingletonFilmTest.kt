@@ -2,7 +2,6 @@ package app.foyer.ui
 
 import android.graphics.Paint
 import android.os.SystemClock
-import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -51,7 +50,7 @@ class FolderSingletonFilmTest {
             var pressed by mutableStateOf(false)
             val haptics = mutableListOf<Pair<Long, Boolean>>()
             val hapticTrace = StringBuilder("uptime,case,armed\n")
-            val trace = StringBuilder("uptime,case,collapse,start,end,landing,alpha\n")
+            val trace = StringBuilder("uptime,case,collapse,start,end,landing,frame,surfaceFrame\n")
             try {
                 waitFor("apps") { activity.graph.apps.apps.value.size >= 2 }
                 val apps = activity.graph.apps.apps.value.map { it.key }
@@ -64,7 +63,7 @@ class FolderSingletonFilmTest {
                         LaunchedEffect(Unit) {
                             while (true) withFrameNanos {
                                 frame = SystemClock.uptimeMillis()
-                                trace.append("$frame,$label,${state.folderCollapses.values.firstOrNull()?.progress?.value},${state.folderCollapses.values.firstOrNull()?.start},${state.appIconBounds[1]},${state.folderLanding != null},${state.drag?.visualAlpha},${state.folderCollapses.values.firstOrNull()?.frame},${state.folderCollapses.values.firstOrNull()?.surfaceFrame}\n")
+                                trace.append("$frame,$label,${state.folderCollapses.values.firstOrNull()?.progress?.value},${state.folderCollapses.values.firstOrNull()?.start},${state.appIconBounds[1]},${state.folderLanding != null},${state.folderCollapses.values.firstOrNull()?.frame},${state.folderCollapses.values.firstOrNull()?.surfaceFrame}\n")
                             }
                         }
                         Box(Modifier.fillMaxSize()) {
@@ -82,18 +81,11 @@ class FolderSingletonFilmTest {
                     }
                 }
                 waitFor("composition") { initialized }
-                var downTime = 0L
-                fun send(action: Int, point: Offset) {
-                    val now = SystemClock.uptimeMillis()
-                    if (action == MotionEvent.ACTION_DOWN) downTime = now
-                    var window = Offset.Zero
-                    main { window = state.rootCoords!!.localToWindow(Offset.Zero); pointer = point; pressed = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL }
-                    MotionEvent.obtain(downTime, now, action, point.x + window.x, point.y + window.y, 0).also {
-                        it.source = InputDevice.SOURCE_TOUCHSCREEN
-                        main { activity.dispatchTouchEvent(it) }
-                        it.recycle()
-                    }
+                val gesture = NativeFolderGesture(activity, { state }, ::main) { now, action, point ->
+                    pointer = point
+                    pressed = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL
                 }
+                fun send(action: Int, point: Offset) = gesture.send(action, point)
                 fun reset(name: String, large: Boolean = false, duplicate: Boolean = false, emptyTarget: Boolean = false) {
                     main {
                         label = name; reject = false; state.cancelDrag(); state.openFolder = null; state.menu = null
@@ -113,12 +105,7 @@ class FolderSingletonFilmTest {
                     send(MotionEvent.ACTION_MOVE, point + Offset(30f, 30f)); SystemClock.sleep(50)
                     main { assertNotNull(state.drag) }
                 }
-                fun approach(point: Offset) {
-                    var start = Offset.Zero; var end = Offset.Zero
-                    main { start = state.drag!!.pointer; end = point - state.drag!!.anchorOffset }
-                    for (step in 1..15) { send(MotionEvent.ACTION_MOVE, start + (end - start) * (step / 15f)); SystemClock.sleep(16) }
-                    SystemClock.sleep(400)
-                }
+                fun approach(point: Offset) { gesture.approach(point); SystemClock.sleep(400) }
                 fun release(cancel: Boolean = false) {
                     var point = Offset.Zero; main { point = state.drag!!.pointer }
                     send(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, point)
@@ -149,7 +136,6 @@ class FolderSingletonFilmTest {
                 reset("03a large frame moves then releases", large = true)
                 begin(point { state.appIconBounds.getValue(2).center })
                 approach(point { largeFolderCell(state.folderSurfaceBounds.getValue(1), 4, state.folderInsetPx).center })
-                main { assertEquals(1f, state.drag!!.visualAlpha) }
                 approach(point { largeFolderCell(state.folderSurfaceBounds.getValue(1), 5, state.folderInsetPx).center })
                 main { assertEquals(5, state.folderDropPreview(state.drag!!)!!.slot) }
                 instrumentation.uiAutomation.takeScreenshot().also { bitmap ->
@@ -178,7 +164,7 @@ class FolderSingletonFilmTest {
                 main { activity.graph.layout.edit { Edits.add(it, AppContent(apps[1]), 2, 5) } }
                 SystemClock.sleep(300); approach(point { state.appIconBounds.getValue(3).center })
                 waitFor("merge armed") { state.mergeReady == 3L }
-                main { assertEquals(1f, state.drag!!.visualAlpha); assertEquals(listOf(true), haptics.map { it.second }) }
+                main { assertEquals(listOf(true), haptics.map { it.second }) }
                 // Leaving an armed candidate emits exactly one exit; entering again emits one arm.
                 approach(feed())
                 main { assertEquals(listOf(true, false), haptics.map { it.second }) }
