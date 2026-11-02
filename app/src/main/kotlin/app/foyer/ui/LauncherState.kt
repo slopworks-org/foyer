@@ -86,7 +86,7 @@ internal class MergePreview(val target: HomeItem, val bounds: androidx.compose.u
 
 internal sealed interface LandingResult {
     data object Pending : LandingResult
-    data class Committed(val entryId: String?) : LandingResult
+    data class Committed(val entryId: String) : LandingResult
     data object Returning : LandingResult
 }
 
@@ -225,8 +225,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             val survivor = replacements[old.id]?.let { remaining -> folder.entries.find { it.id == remaining.survivor.id } } ?: return@forEach
             val surface = folderSurfaceBounds[old.id] ?: return@forEach
             val panel = folderTransitionId == old.id
-            val start = if (panel) folderMemberFrames[old.id to survivor.id]?.invoke()?.bounds
-                ?: panelMemberBounds[old.id to survivor.id] else memberBounds[old.id to survivor.id]
+            val start = if (panel) panelMemberVisual(old.id, survivor.id) { panelMemberBounds[old.id to survivor.id] }?.bounds
+                else memberBounds[old.id to survivor.id]
             // Cleanup may preserve the occurrence currently owned by a drag or return flight.
             // Transfer that visual before disposing the old member gesture can cancel it again.
             val held = drag?.takeIf { session ->
@@ -245,13 +245,16 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 if (flight != null) folderLanding = null
                 if (held != null) drag = null
             }
-            val frame = movingFrame ?: start ?: folderMemberStart(surface, false, folder.entries.size,
-                folder.entries.indexOf(survivor), icon, inset)
+            val frame = movingFrame ?: start ?: closedFolderSlot(folder, survivor.id, surface, icon, inset)
             folderCollapses[old.id] = FolderCollapse(old, app.app, frame,
                 if (panel) folderPanelBounds ?: surface else surface, panel, appFor(app)?.icon)
             if (menuOwner == old.id) { menu = null; menuOwner = null }
         }
     }
+
+    /** Prefer live lazy placement, retaining the caller's measured/resting fallback policy. */
+    internal fun panelMemberVisual(id: Long, entryId: String?, fallback: () -> androidx.compose.ui.geometry.Rect?): FolderMemberVisual? =
+        folderMemberFrames[id to entryId]?.invoke() ?: fallback()?.let { FolderMemberVisual(it, 1f) }
 
     internal val folderMemberFrames = mutableMapOf<Pair<Long, String>, () -> FolderMemberVisual?>()
     val memberBounds = mutableStateMapOf<Pair<Long, String>, androidx.compose.ui.geometry.Rect>()
@@ -455,9 +458,9 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                     graph.layout.editChange { current ->
                         val live = current.items.find { it.id == item.id }?.content as? FolderContent
                         if (live == null || live.large && live.entries.size < 2) LayoutChange(current) else {
-                            val result = Edits.folderChange(current, item.id, live.copy(large = !live.large))
-                            if (result.layout === current) folderFeedback = if (live.apps.size > 9) R.string.folder_capacity else R.string.folder_collision
-                            result
+                            val result = Edits.planFolderChange(current, item.id, live.copy(large = !live.large))
+                            if (result == null) folderFeedback = if (live.apps.size > 9) R.string.folder_capacity else R.string.folder_collision
+                            result ?: LayoutChange(current)
                         }
                     }
                 })
@@ -699,10 +702,10 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 applied = result
                 result?.change ?: LayoutChange(current)
             }
-            // Visual side effects run once, after the retryable transform has committed.
+            // Visual side effects run once, after the layout change has committed.
             if (drag !== s) return@launch
             if (applied != null && folderId >= 0 && flight != null) {
-                flight.result = LandingResult.Committed(applied!!.incomingId)
+                flight.result = LandingResult.Committed(s.incomingId)
                 preview?.phase = MergePhase.Committed
                 if (s.source is DragSource.Member && folderId != s.source.folderId) openFolder = null
                 drag = null
@@ -836,7 +839,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         if (t is DropTarget.Merge) {
             if (key == null) return null
             val result = Edits.mergeChange(l, t.target, key, placed, member?.folderId, member?.entryId, incomingId = s.incomingId)
-            return if (result.layout === l) null else TransferResult(result.layout, t.target.id, s.incomingId, t.target.id, result.replacements)
+            return result?.let { TransferResult(it.layout, t.target.id, s.incomingId, t.target.id, it.replacements) }
         }
         if (t is DropTarget.Folder || member != null) {
             if (key == null) return null
@@ -897,8 +900,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             graph.layout.editChange { current ->
                 val result = Edits.mergeChange(current, target, key, source, sourceFolder, sourceEntry,
                     keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages }, incomingId)
-                if (result.layout === current) folderFeedback = R.string.folder_drop_failed
-                result
+                if (result == null) folderFeedback = R.string.folder_drop_failed
+                result ?: LayoutChange(current)
             }
         }
     }

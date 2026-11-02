@@ -9,6 +9,15 @@ class FolderDragTest {
         Edits.add(HomeLayout(), FolderContent(apps, large), 0, 0)
     private fun members(l: HomeLayout, id: Long = 1) = (l.items.first { it.id == id }.content as FolderContent).apps
 
+    @Test fun rejectedSourceEditRejectsTheWholeTransferAndMerge() {
+        val initial = Edits.add(base(), AppContent(key(8)), 3, 0)
+        val overlapping = initial.copy(items = initial.items + HomeItem(99, AppContent(key(9)), 0, 0))
+        val entry = (overlapping.items.first().content as FolderContent).entries.first()
+        assertNull(Edits.planTransferApp(overlapping, entry.app, sourceFolder = 1, sourceEntry = entry.id, x = 4, y = 2))
+        assertNull(Edits.mergeChange(overlapping, initial.items.last(), entry.app, sourceFolder = 1, sourceEntry = entry.id))
+        assertEquals(initial.items.first(), overlapping.items.first())
+    }
+
     @Test fun rejectedDestinationNeverConsumesTheSource() {
         val valid = Edits.add(base(), AppContent(key(5)), 3, 0)
         val overlapping = valid.copy(items = valid.items + HomeItem(99, AppContent(key(9)), 0, 0))

@@ -188,7 +188,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
             Box(surface.graphicsLayer { alpha = if (interactive && (state.folderTransitionId == item.id || state.mergePreviews.any { it.target.id == item.id && it.committed })) 0f else 1f }.onGloballyPositioned { if (interactive) state.folderSurfaceBounds[item.id] = if (folder.large)
                     Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat())) else it.boundsInRoot() }
                 .then(if (interactive && !folder.large && target?.standalone == null && target?.folderId == item.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary,
-                if (folder.large) RoundedCornerShape(24.dp) else CircleShape) else Modifier)) {
+                CircleShape) else Modifier)) {
                 // A sibling hit target gives member drags exclusive ownership of their gestures.
                 Box(Modifier.matchParentSize().clip(if (folder.large) RoundedCornerShape(24.dp) else CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh).then(if (interactive) Modifier.itemGestures(callbacks).semantics {
@@ -588,28 +588,35 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val index = (if (folder?.large == true) folder.slotEntries.indexOfFirst { it?.id == landing.entryId } else folder?.entries?.indexOfFirst { it.id == landing.entryId })?.coerceAtLeast(0) ?: 0
     val visible = folderPreviewMembers(if (folder?.large == true) 9 else folder?.apps?.size ?: 0, folder?.large ?: false).any { it.index == index }
     val panel = state.folderTransitionId == landing.folderId
-    val memberVisual = if (panel) state.folderMemberFrames[landing.folderId to landing.entryId]?.invoke() else null
+    val memberVisual = if (panel) state.panelMemberVisual(landing.folderId, landing.entryId) {
+        state.folderPanel?.memberFrame(index, icon, with(density) { 8.dp.toPx() })
+    } else null
     val source = landing.source
     val returningMember = (source.source as? DragSource.Member)?.takeIf { state.folderTransitionId == it.folderId }
-    val returnVisual = returningMember?.let { state.folderMemberFrames[it.folderId to it.entryId]?.invoke() }
+    val returnVisual = returningMember?.let { from ->
+        val fromFolder = layout.items.find { it.id == from.folderId }?.content as? FolderContent
+        val memberIndex = fromFolder?.entries?.indexOfFirst { it.id == from.entryId } ?: -1
+        if (memberIndex < 0) null else state.panelMemberVisual(from.folderId, from.entryId) {
+            state.folderPanel?.memberFrame(memberIndex, icon, with(density) { 8.dp.toPx() })
+        }
+    }
     val sourceBounds = when (val from = source.source) {
         is DragSource.Placed -> state.appIconBounds[from.item.id].takeIf { live -> live != null && layout.items.any { it.id == from.item.id && it.content == from.item.content } }
         is DragSource.Member -> {
             val fromFolder = layout.items.find { it.id == from.folderId }?.content as? FolderContent
             val memberIndex = fromFolder?.entries?.indexOfFirst { it.id == from.entryId } ?: -1
-            if (memberIndex < 0) null else if (state.folderTransitionId == from.folderId) returnVisual?.bounds ?: state.folderGridBounds?.let {
-                folderGridIcon(it, memberIndex, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
-            }
+            if (memberIndex < 0) null else if (state.folderTransitionId == from.folderId) returnVisual?.bounds
             else state.memberBounds[from.folderId to from.entryId] ?: state.folderSurfaceBounds[from.folderId]?.let {
-                folderMemberStart(it, fromFolder!!.large, if (fromFolder.large) 9 else fromFolder.apps.size, if (fromFolder.large) fromFolder.entries[memberIndex].slot ?: memberIndex else memberIndex, icon, with(density) { (if (fromFolder.large) LARGE_FOLDER_INSET else 5.dp).toPx() })
+                closedFolderSlot(fromFolder!!, from.entryId, it, icon,
+                    with(density) { (if (fromFolder.large) LARGE_FOLDER_INSET else 5.dp).toPx() })
             }
         }
         is DragSource.New -> source.origin.let { Rect(it - Offset(icon / 2, icon / 2), Size(icon, icon)) }
     }
-    val end = if (landing.returning) sourceBounds else if (desktopDestination != null) desktopDestination else if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
-            folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
-        }
-        else if (folder != null && liveSurface != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) LARGE_FOLDER_INSET else 5.dp).toPx() }) else null
+    val end = if (landing.returning) sourceBounds else if (desktopDestination != null) desktopDestination
+        else if (panel) memberVisual?.bounds
+        else if (folder != null && liveSurface != null) closedFolderSlot(folder, landing.entryId, surface, icon,
+            with(density) { (if (folder.large) LARGE_FOLDER_INSET else 5.dp).toPx() }) else null
     val destination = end ?: surface
     val viewport = if (if (landing.returning) returningMember != null else panel) state.folderContentViewport else null
     val destinationVisible = if (!landing.returning && desktopDestination != null) true else if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible

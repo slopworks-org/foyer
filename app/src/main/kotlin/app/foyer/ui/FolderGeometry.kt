@@ -90,6 +90,16 @@ internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index:
     return Rect(center - Offset(size / 2, size / 2), Size(size, size))
 }
 
+/** Resolve an occurrence to its physical closed slot, including sparse large folders. */
+internal fun closedFolderSlot(folder: FolderContent, entryId: String?, surface: Rect, icon: Float, inset: Float): Rect {
+    val entry = folder.entries.indexOfFirst { it.id == entryId }.coerceAtLeast(0)
+    val slot = if (folder.large) folder.entries.getOrNull(entry)?.slot ?: entry else entry
+    return folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.entries.size, slot, icon, inset)
+}
+
+internal fun FolderPanelGeometry.memberFrame(index: Int, icon: Float, topPadding: Float): Rect? =
+    grid?.let { folderGridIcon(it, index, rowHeight, icon, topPadding, scroll, columns) }
+
 /** Unclipped slot geometry also works for members that the lazy grid has not composed. */
 internal fun folderGridIcon(grid: Rect, index: Int, rowHeight: Float, icon: Float, topPadding: Float, scroll: Float, columns: Int = 3): Rect =
     Rect(Offset(grid.left + grid.width * (index % columns + .5f) / columns - icon / 2,

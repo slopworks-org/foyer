@@ -245,10 +245,8 @@ object Edits {
     private fun replacement(id: Long, folder: FolderContent) =
         folder.entries.singleOrNull()?.takeUnless { folder.large }?.let { FolderReplacement(id, it) }
 
-    fun folderChange(l: HomeLayout, id: Long, content: FolderContent): LayoutChange {
-        val next = folder(l, id, content)
-        return LayoutChange(next, if (next === l) emptyList() else listOfNotNull(replacement(id, content)))
-    }
+    fun folderChange(l: HomeLayout, id: Long, content: FolderContent): LayoutChange =
+        planFolderChange(l, id, content) ?: LayoutChange(l)
 
     fun reconcileFolderAppsChange(l: HomeLayout, missing: Set<AppKey>) =
         LayoutChange(reconcileFolderApps(l, missing), l.items.mapNotNull { item ->
@@ -305,16 +303,20 @@ object Edits {
     }
 
     /** Reject invalid edits atomically: membership and occupied cells never change on failure. */
-    fun folder(l: HomeLayout, id: Long, folder: FolderContent): HomeLayout {
-        val item = l.items.find { it.id == id && it.content is FolderContent && !it.dock } ?: return l
+    fun folder(l: HomeLayout, id: Long, folder: FolderContent): HomeLayout =
+        planFolderChange(l, id, folder)?.layout ?: l
+
+    fun planFolderChange(l: HomeLayout, id: Long, folder: FolderContent): LayoutChange? {
+        val item = l.items.find { it.id == id && it.content is FolderContent && !it.dock } ?: return null
         val span = if (folder.large) 2 else 1
         if (folder.entries.map { it.id }.distinct().size != folder.entries.size || folder.large && folder.apps.size > 9 ||
-            !l.isFree(item.x, item.y, span, span, id)) return l
+            !l.isFree(item.x, item.y, span, span, id)) return null
         val old = item.content as FolderContent
-        if (old.large && !folder.large && (old.entries.size < 2 || folder.entries.size < 2)) return l
+        if (old.large && !folder.large && (old.entries.size < 2 || folder.entries.size < 2)) return null
         // Mode changes deliberately pack occupied row-major order; large mode has no name.
         val normalized = (if (old.large != folder.large) folder.copy(name = if (folder.large) "" else folder.name, entries = folder.entries.map { it.copy(slot = null) }) else folder).normalized()
-        return l.copy(items = l.items.map { if (it.id == id) canonicalFolder(it.copy(w = span, h = span), normalized) else it })
+        return LayoutChange(l.copy(items = l.items.map { if (it.id == id) canonicalFolder(it.copy(w = span, h = span), normalized) else it }),
+            listOfNotNull(replacement(id, normalized)))
     }
 
     fun transferApp(
@@ -367,50 +369,47 @@ object Edits {
                 members.add(insertion.coerceIn(0, members.size), incoming.copy(slot = null))
                 updated = members
             }
-            var result = folder(l, targetFolder, target.copy(entries = updated))
-            if (result === l) return null
+            val destination = planFolderChange(l, targetFolder, target.copy(entries = updated)) ?: return null
+            var result = destination.layout
             if (sourceItem != null) result = remove(result, sourceItem)
-            if (sourceFolder != null && !same) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
-            return TransferResult(result, targetFolder, incoming.id, targetFolder,
-                listOfNotNull(replacement(targetFolder, target.copy(entries = updated)),
-                    from?.takeIf { !same }?.let { replacement(sourceFolder!!, it.withoutEntry(entry!!.id)) }))
+            val departure = if (sourceFolder != null && !same)
+                planFolderChange(result, sourceFolder, from!!.withoutEntry(entry!!.id)) ?: return null
+                else LayoutChange(result)
+            return TransferResult(departure.layout, targetFolder, incoming.id, targetFolder,
+                destination.replacements + departure.replacements)
         }
         if (source != null) {
             if (dock && !l.dockSlotFree(x, source.id) || !dock && !l.isFree(x, y, 1, 1, source.id)) return null
             return TransferResult(move(l, source.id, x, y, dock), source.id)
         }
+        if (dock && !l.dockSlotFree(x) || !dock && !l.isFree(x, y, 1, 1)) return null
         val added = add(l, AppContent(key), x, y, dock = dock)
-        if (added === l) return null
-        return TransferResult(if (sourceFolder == null) added else folder(added, sourceFolder, from!!.withoutEntry(entry!!.id)), l.nextId,
-            replacements = listOfNotNull(from?.let { replacement(sourceFolder!!, it.withoutEntry(entry!!.id)) }))
+        val departure = if (sourceFolder == null) LayoutChange(added)
+            else planFolderChange(added, sourceFolder, from!!.withoutEntry(entry!!.id)) ?: return null
+        return TransferResult(departure.layout, l.nextId, replacements = departure.replacements)
     }
 
     /** Replace the target in place only after validating the whole move. */
     fun mergeApps(l: HomeLayout, target: HomeItem, key: AppKey, sourceItem: HomeItem? = null,
-                  sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true, incomingId: String = java.util.UUID.randomUUID().toString()): HomeLayout {
+                  sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true, incomingId: String = java.util.UUID.randomUUID().toString()): HomeLayout =
+        mergeChange(l, target, key, sourceItem, sourceFolder, sourceEntry, available, incomingId)?.layout ?: l
+
+    fun mergeChange(l: HomeLayout, target: HomeItem, key: AppKey, sourceItem: HomeItem? = null,
+                  sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true, incomingId: String = java.util.UUID.randomUUID().toString()): LayoutChange? {
         if (!available || target.dock || target.w != 1 || target.h != 1 || target.content !is AppContent ||
             !l.isFree(target.x, target.y, 1, 1, target.id) ||
             l.items.find { it.id == target.id } != target || sourceItem?.id == target.id ||
-            sourceItem != null && sourceFolder != null) return l
-        if (sourceItem != null && (l.items.find { it.id == sourceItem.id } != sourceItem || sourceItem.content != AppContent(key))) return l
+            sourceItem != null && sourceFolder != null) return null
+        if (sourceItem != null && (l.items.find { it.id == sourceItem.id } != sourceItem || sourceItem.content != AppContent(key))) return null
         val from = l.items.find { it.id == sourceFolder }?.content as? FolderContent
         val entry = from?.entries?.singleOrNull { it.id == sourceEntry && it.app == key }
-        if (sourceFolder != null && entry == null) return l
+        if (sourceFolder != null && entry == null) return null
         var result = l.copy(items = l.items.map {
             if (it.id == target.id) it.copy(content = FolderContent(entries = listOf(FolderEntry(target.content.app), entry?.copy(slot = null) ?: FolderEntry(key, id = incomingId)))) else it
         })
         if (sourceItem != null) result = remove(result, sourceItem.id)
-        if (sourceFolder != null) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
-        return result
-    }
-
-    fun mergeChange(l: HomeLayout, target: HomeItem, key: AppKey, sourceItem: HomeItem? = null,
-        sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true,
-        incomingId: String = java.util.UUID.randomUUID().toString()): LayoutChange {
-        val next = mergeApps(l, target, key, sourceItem, sourceFolder, sourceEntry, available, incomingId)
-        val from = l.items.find { it.id == sourceFolder }?.content as? FolderContent
-        return LayoutChange(next, if (next === l || from == null || sourceEntry == null) emptyList()
-            else listOfNotNull(replacement(sourceFolder!!, from.withoutEntry(sourceEntry))))
+        return if (sourceFolder == null) LayoutChange(result)
+            else planFolderChange(result, sourceFolder, from!!.withoutEntry(entry!!.id))
     }
 
     fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(
