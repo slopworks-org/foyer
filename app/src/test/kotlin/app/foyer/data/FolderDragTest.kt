@@ -9,6 +9,34 @@ class FolderDragTest {
         Edits.add(HomeLayout(), FolderContent(apps, large), 0, 0)
     private fun members(l: HomeLayout, id: Long = 1) = (l.items.first { it.id == id }.content as FolderContent).apps
 
+    @Test fun rejectedDestinationNeverConsumesTheSource() {
+        val valid = Edits.add(base(), AppContent(key(5)), 3, 0)
+        val overlapping = valid.copy(items = valid.items + HomeItem(99, AppContent(key(9)), 0, 0))
+        assertNull(Edits.planTransferApp(overlapping, key(5), sourceItem = 2, targetFolder = 1))
+        assertEquals(valid.items.last(), overlapping.items.find { it.id == 2L })
+        assertSame(overlapping, Edits.transferApp(overlapping, key(5), sourceItem = 2, targetFolder = 1))
+    }
+
+    @Test fun plannedIncomingIdentitySurvivesReplanningAgainstNewLayout() {
+        val initial = base()
+        val preview = Edits.planTransferApp(initial, key(5), targetFolder = 1, incomingId = "incoming")!!
+        val current = Edits.add(initial, AppContent(key(8)), 3, 2)
+        val commit = Edits.planTransferApp(current, key(5), targetFolder = 1, incomingId = "incoming")!!
+        assertEquals(preview.incomingId, commit.incomingId)
+        assertEquals("incoming", (commit.layout.items.first().content as FolderContent).entries.last().id)
+        assertEquals(current.items.last(), commit.layout.items.last())
+        assertEquals(1L, commit.destination)
+    }
+
+    @Test fun ownLargeSlotIsAcceptedWithoutChangingOccurrences() {
+        val initial = base(large = true)
+        val entry = (initial.items.first().content as FolderContent).entries.first()
+        val result = Edits.planTransferApp(initial, entry.app, sourceFolder = 1,
+            sourceEntry = entry.id, targetFolder = 1, index = entry.slot!!)!!
+        assertEquals(initial, result.layout)
+        assertEquals(entry.id, result.incomingId)
+    }
+
     @Test fun fifthExternalAdditionAndModeChanges() {
         val four = (1..4).map(::key)
         val expected = listOf(key(1), key(2), key(5), key(3), key(4))

@@ -219,6 +219,10 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
     }
 }
 
+/** Accepted transfer, including no-op reorders; null planning results mean rejection. */
+data class TransferResult(val layout: HomeLayout, val landedId: Long,
+    val incomingId: String? = null, val destination: Long? = null)
+
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
     /** Large folders retain their footprint at every count; only small singletons become apps. */
@@ -276,35 +280,42 @@ object Edits {
         return l.copy(items = l.items.map { if (it.id == id) canonicalFolder(it.copy(w = span, h = span), normalized) else it })
     }
 
-    /** Atomic occurrence transfer; a stale or ambiguous source never consumes anything. */
     fun transferApp(
         l: HomeLayout, key: AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,
         targetFolder: Long? = null, index: Int = Int.MAX_VALUE,
         x: Int = 0, y: Int = 0, dock: Boolean = false, available: Boolean = true,
         sourceEntry: String? = null,
-    ): HomeLayout {
-        if (!available || sourceItem != null && sourceFolder != null) return l
+    ): HomeLayout = planTransferApp(l, key, sourceItem, sourceFolder, targetFolder, index, x, y, dock, available, sourceEntry)?.layout ?: l
+
+    /** Atomic occurrence transfer; a stale or ambiguous source never consumes anything. */
+    fun planTransferApp(
+        l: HomeLayout, key: AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,
+        targetFolder: Long? = null, index: Int = Int.MAX_VALUE,
+        x: Int = 0, y: Int = 0, dock: Boolean = false, available: Boolean = true,
+        sourceEntry: String? = null, incomingId: String = java.util.UUID.randomUUID().toString(),
+    ): TransferResult? {
+        if (!available || sourceItem != null && sourceFolder != null) return null
         val source = sourceItem?.let { id -> l.items.find { it.id == id } }
-        if (sourceItem != null && source?.content != AppContent(key)) return l
+        if (sourceItem != null && source?.content != AppContent(key)) return null
         val from = sourceFolder?.let { id -> l.items.find { it.id == id }?.content as? FolderContent }
         val entry = from?.entries?.let { entries ->
             if (sourceEntry != null) entries.singleOrNull { it.id == sourceEntry && it.app == key }
             else entries.singleOrNull { it.app == key }
         }
-        if (sourceFolder != null && entry == null) return l
+        if (sourceFolder != null && entry == null) return null
         val target = targetFolder?.let { id -> l.items.find { it.id == id && !it.dock }?.content as? FolderContent }
-        if (targetFolder != null && target == null) return l
+        if (targetFolder != null && target == null) return null
         if (target != null) {
             val same = sourceFolder == targetFolder
-            if (!same && target.large && target.entries.size >= 9) return l
-            val incoming = entry ?: FolderEntry(key)
-            if (!same && target.entries.any { it.id == incoming.id }) return l
+            if (!same && target.large && target.entries.size >= 9) return null
+            val incoming = entry ?: FolderEntry(key, id = incomingId)
+            if (!same && target.entries.any { it.id == incoming.id }) return null
             val updated: List<FolderEntry>
             if (target.large) {
                 val fixed = target.normalized().slotEntries.toMutableList()
                 val old = if (same) fixed.indexOfFirst { it?.id == incoming.id } else -1
                 val slot = if (index == Int.MAX_VALUE) { if (old >= 0) old else fixed.indexOf(null) } else index
-                if (slot !in 0..8 || old < 0 && fixed[slot] != null) return l
+                if (slot !in 0..8 || old < 0 && fixed[slot] != null) return null
                 if (old >= 0) fixed[old] = fixed[slot]?.copy(slot = old)
                 fixed[slot] = incoming.copy(slot = slot)
                 updated = fixed.filterNotNull()
@@ -320,20 +331,23 @@ object Edits {
                 updated = members
             }
             var result = folder(l, targetFolder, target.copy(entries = updated))
-            if (result === l) return l
+            if (result === l) return null
             if (sourceItem != null) result = remove(result, sourceItem)
             if (sourceFolder != null && !same) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
-            return result
+            return TransferResult(result, targetFolder, incoming.id, targetFolder)
         }
-        if (source != null) return move(l, source.id, x, y, dock)
+        if (source != null) {
+            if (dock && !l.dockSlotFree(x, source.id) || !dock && !l.isFree(x, y, 1, 1, source.id)) return null
+            return TransferResult(move(l, source.id, x, y, dock), source.id)
+        }
         val added = add(l, AppContent(key), x, y, dock = dock)
-        if (added === l) return l
-        return if (sourceFolder == null) added else folder(added, sourceFolder, from!!.withoutEntry(entry!!.id))
+        if (added === l) return null
+        return TransferResult(if (sourceFolder == null) added else folder(added, sourceFolder, from!!.withoutEntry(entry!!.id)), l.nextId)
     }
 
     /** Replace the target in place only after validating the whole move. */
     fun mergeApps(l: HomeLayout, target: HomeItem, key: AppKey, sourceItem: HomeItem? = null,
-                  sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true): HomeLayout {
+                  sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true, incomingId: String = java.util.UUID.randomUUID().toString()): HomeLayout {
         if (!available || target.dock || target.w != 1 || target.h != 1 || target.content !is AppContent ||
             !l.isFree(target.x, target.y, 1, 1, target.id) ||
             l.items.find { it.id == target.id } != target || sourceItem?.id == target.id ||
@@ -343,7 +357,7 @@ object Edits {
         val entry = from?.entries?.singleOrNull { it.id == sourceEntry && it.app == key }
         if (sourceFolder != null && entry == null) return l
         var result = l.copy(items = l.items.map {
-            if (it.id == target.id) it.copy(content = FolderContent(entries = listOf(FolderEntry(target.content.app), entry?.copy(slot = null) ?: FolderEntry(key)))) else it
+            if (it.id == target.id) it.copy(content = FolderContent(entries = listOf(FolderEntry(target.content.app), entry?.copy(slot = null) ?: FolderEntry(key, id = incomingId)))) else it
         })
         if (sourceItem != null) result = remove(result, sourceItem.id)
         if (sourceFolder != null) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
