@@ -31,6 +31,29 @@ internal class NativeFolderGesture(
         }
     }
 
+    fun begin(point: Offset, nudge: Offset = Offset(30f, 30f), afterMoveMillis: Long = 50) {
+        send(MotionEvent.ACTION_DOWN, point)
+        SystemClock.sleep(620)
+        send(MotionEvent.ACTION_MOVE, point + nudge)
+        SystemClock.sleep(afterMoveMillis)
+        main { org.junit.Assert.assertNotNull("native drag started", state().drag) }
+    }
+
+    fun release(cancel: Boolean = false, settleMillis: Long = 450,
+        settled: (LauncherState) -> Boolean = { it.drag == null && it.folderLanding == null }) {
+        var pointer = Offset.Zero
+        main { pointer = state().drag!!.pointer }
+        send(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, pointer)
+        val deadline = SystemClock.uptimeMillis() + 10000
+        var finished = false
+        while (!finished && SystemClock.uptimeMillis() < deadline) {
+            main { finished = settled(state()) }
+            if (!finished) SystemClock.sleep(20)
+        }
+        org.junit.Assert.assertTrue("native drag settled", finished)
+        SystemClock.sleep(settleMillis)
+    }
+
     fun approach(anchor: Offset, steps: Int = 15) {
         var start = Offset.Zero
         var destination = Offset.Zero

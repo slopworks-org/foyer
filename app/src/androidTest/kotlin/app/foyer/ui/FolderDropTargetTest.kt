@@ -3,7 +3,6 @@ package app.foyer.ui
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
-import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
@@ -57,8 +56,11 @@ class FolderDropTargetTest {
                 rule.mainClock.advanceTimeBy(800)
                 rule.waitForIdle()
             }
+            val evidence = FolderEvidence(File(rule.activity.getExternalFilesDir(null), "grid-aligned-feedback"))
             fun capture(name: String) {
                 for (isLight in listOf(false, true)) {
+                    val frameName = "drop-$name-${if (isLight) "light" else "dark"}"
+                    if (!evidence.enabled(frameName)) continue
                     rule.runOnIdle { light = isLight }
                     rule.mainClock.advanceTimeBy(800)
                     rule.waitForIdle()
@@ -73,9 +75,7 @@ class FolderDropTargetTest {
                     // Allow SurfaceFlinger to latch the themed frame; the Compose clock is paused.
                     InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                     android.os.SystemClock.sleep(100)
-                    val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-                    file.outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    screenshot.recycle()
+                    evidence.device(frameName)
                 }
             }
             fun preview(): FolderDropPreview = rule.runOnIdle { state.folderDropPreview(state.drag!!)!! }
@@ -111,6 +111,7 @@ class FolderDropTargetTest {
                 rule.mainClock.advanceTimeBy(800)
                 rule.waitForIdle()
                 val incoming = folder().entries.single { it.id !in (0 until count).map { i -> "e$i" } }
+                assertEquals(p.entryId, incoming.id)
                 assertEquals(p.slot, folder().entries.indexOfFirst { it.id == incoming.id })
                 val committedFrame = rule.runOnIdle { state.panelMemberBounds.getValue(1L to incoming.id) }
                 assertEquals(destinationFrame.center.x, committedFrame.center.x, 1.1f)
@@ -148,6 +149,7 @@ class FolderDropTargetTest {
                 if (large) {
                     val retained = folder()
                     assertTrue(retained.large)
+                    assertEquals(p.entryId, retained.entries.single().id)
                     assertEquals(p.slot, retained.entries.single().slot)
                     rule.runOnIdle {
                         assertTrue(state.folderCollapses.isEmpty())

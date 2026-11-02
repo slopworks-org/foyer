@@ -1,6 +1,5 @@
 package app.foyer.ui
 
-import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -102,21 +101,10 @@ class FolderMotionTest {
     }
 
     private fun evidence(name: String) {
-        val arguments = InstrumentationRegistry.getArguments()
-        if (arguments.getString("skipEvidence") == "true") return
-        val prefixes = arguments.getString("evidencePrefixes")?.split(",")
-        if (prefixes != null && prefixes.none { name.startsWith(it) }) return
-        val file = File(rule.activity.getExternalFilesDir(null), "folder-motion/$name.png")
-        file.parentFile!!.mkdirs()
-        file.outputStream().use { rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
-        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        val device = File(file.parentFile, "$name-device.png")
-        device.outputStream().use {
-            automation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it)
-        }
-        // Download survives Gradle uninstalling the instrumented APK after a run.
-        automation.executeShellCommand("cp ${file.absolutePath} ${device.absolutePath} /sdcard/Download/foyer-three-fixes/").use {
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
+        FolderEvidence(File(rule.activity.getExternalFilesDir(null), "folder-motion")).capture(name,
+            includeDevice = true, archive = "/sdcard/Download/foyer-three-fixes") {
+            rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f })
+                .captureToImage().asAndroidBitmap()
         }
     }
 

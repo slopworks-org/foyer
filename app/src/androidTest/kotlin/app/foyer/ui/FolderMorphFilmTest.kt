@@ -101,18 +101,11 @@ class FolderMorphFilmTest {
             fun begin(id: Long = 2) {
                 var start = Offset.Zero
                 main { start = state.appIconBounds.getValue(id).center }
-                send(MotionEvent.ACTION_DOWN, start); SystemClock.sleep(620)
-                send(MotionEvent.ACTION_MOVE, start + Offset(30f, 30f)); SystemClock.sleep(40)
-                main { assertNotNull(state.drag) }
+                gesture.begin(start, afterMoveMillis = 40)
             }
             fun approach(point: Offset, steps: Int = 12) = gesture.approach(point, steps)
             fun target(id: Long = 1): Offset { var point = Offset.Zero; main { point = state.appIconBounds.getValue(id).center }; return point }
-            fun release(cancel: Boolean = false) {
-                var point = Offset.Zero; main { point = state.drag!!.pointer }
-                send(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, point)
-                waitFor("settled") { state.drag == null && state.folderLanding == null }
-                SystemClock.sleep(450)
-            }
+            fun release(cancel: Boolean = false) = gesture.release(cancel)
             fun reset(name: String, same: Boolean = false, third: Boolean = false) {
                 main {
                     label = name; validationDelay = 0; reject = false
@@ -205,8 +198,7 @@ class FolderMorphFilmTest {
                 SystemClock.sleep(550); main { state.openFolder = 1 }; SystemClock.sleep(550)
                 var member = Offset.Zero
                 main { member = state.panelMemberBounds.values.first().center }
-                send(MotionEvent.ACTION_DOWN, member); SystemClock.sleep(620)
-                send(MotionEvent.ACTION_MOVE, member + Offset(30f, 30f)); SystemClock.sleep(50)
+                gesture.begin(member)
                 var empty = Offset.Zero
                 main { empty = state.gridCoords!!.localToRoot(Offset(state.cellW * 4.5f, state.cellH * 5.5f)) }
                 approach(empty); release()
@@ -217,8 +209,7 @@ class FolderMorphFilmTest {
                 }
                 SystemClock.sleep(550); main { state.openFolder = 2 }; SystemClock.sleep(550)
                 main { member = state.panelMemberBounds.values.first().center }
-                send(MotionEvent.ACTION_DOWN, member); SystemClock.sleep(620)
-                send(MotionEvent.ACTION_MOVE, member + Offset(30f, 30f)); SystemClock.sleep(50)
+                gesture.begin(member)
                 approach(target()); waitFor("member armed") { state.mergeReady == 1L }; SystemClock.sleep(200); release()
                 main { assertEquals(2, state.graph.layout.layout.value.items.size); assertEquals(2, (state.graph.layout.layout.value.items.first { it.id == 1L }.content as FolderContent).entries.size); assertNull(state.openFolder) }
                 }
@@ -229,11 +220,7 @@ class FolderMorphFilmTest {
                 SystemClock.sleep(600); main { state.openFolder = 1 }; SystemClock.sleep(600)
                 var member = Offset.Zero
                 main { member = state.panelMemberBounds.values.first().center }
-                fun shot(name: String) {
-                    instrumentation.uiAutomation.takeScreenshot().also { bitmap ->
-                        File(activity.getExternalFilesDir(null), "immediate-$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
-                    }
-                }
+                fun shot(name: String) = FolderEvidence(activity.getExternalFilesDir(null)!!).device("immediate-$name")
                 shot("panel-before")
                 send(MotionEvent.ACTION_DOWN, member); SystemClock.sleep(180)
                 send(MotionEvent.ACTION_CANCEL, member); SystemClock.sleep(400); shot("panel-cancel")

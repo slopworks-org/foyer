@@ -1,6 +1,5 @@
 package app.foyer.ui
 
-import android.graphics.Bitmap
 import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.activity.compose.setContent
@@ -56,25 +55,13 @@ class FolderEntriesRealTest {
             }
             SystemClock.sleep(400)
             val directory = File(activity.getExternalFilesDir(null), "folder-entries").apply { mkdirs() }
-            fun shot(name: String) {
-                instrumentation.uiAutomation.takeScreenshot().let { image ->
-                    File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    image.recycle()
-                }
-            }
+            val evidence = FolderEvidence(directory)
+            fun shot(name: String) = evidence.device(name)
             val gesture = NativeFolderGesture(activity, { state }, ::main)
             fun send(action: Int, point: Offset) = gesture.send(action, point)
-            fun begin(point: Offset) {
-                send(MotionEvent.ACTION_DOWN, point); SystemClock.sleep(620)
-                send(MotionEvent.ACTION_MOVE, point + Offset(35f, 35f)); SystemClock.sleep(50)
-                main { assertNotNull("native drag started", state.drag) }
-            }
+            fun begin(point: Offset) = gesture.begin(point, nudge = Offset(35f, 35f))
             fun approach(point: Offset) { gesture.approach(point) }
-            fun release(cancel: Boolean = false) {
-                var pointer = Offset.Zero; main { pointer = state.drag!!.pointer }
-                send(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, pointer)
-                waitFor("drag finished") { state.drag == null }; SystemClock.sleep(500)
-            }
+            fun release(cancel: Boolean = false) = gesture.release(cancel, settleMillis = 500) { it.drag == null }
             fun folder(id: Long = 1) = activity.graph.layout.layout.value.items.first { it.id == id }.content as FolderContent
             fun reset(layout: HomeLayout) {
                 main { state.cancelDrag(); state.openFolder = null; state.menu = null; state.feedScroll.dispatchRawDelta(-state.feedScroll.value.toFloat()); activity.graph.layout.edit { layout } }
