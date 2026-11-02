@@ -55,7 +55,7 @@ fun FoyerRoot(state: LauncherState) {
         }
     }
     val density = LocalDensity.current
-    state.observeFolderChanges(layout, with(density) { state.iconSize.toPx() }, with(density) { 5.dp.toPx() })
+    state.observeFolderChanges(with(density) { state.iconSize.toPx() }, with(density) { 5.dp.toPx() })
     val searchable by state.graph.searchable.collectAsStateWithLifecycle()
     state.searchable = searchable
     state.keyboard = LocalSoftwareKeyboardController.current

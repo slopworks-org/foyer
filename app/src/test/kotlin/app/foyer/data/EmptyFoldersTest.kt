@@ -36,22 +36,21 @@ class EmptyFoldersTest {
                 val retained = filled.items.single()
                 assertEquals(2, retained.w)
                 assertEquals(8, (retained.content as FolderContent).entries.single().slot)
-                assertNull(retained.folderSurvivor)
             } else assertEquals(HomeItem(1, AppContent(key), 2, 5), filled.items.single())
             val entries = listOf(FolderEntry(key, "a", 0), FolderEntry(key, "b", 8))
             val source = Edits.add(HomeLayout(), FolderContent(entries = entries, large = large), 2, 5)
             val folder = source.items.single().content as FolderContent
-            val result = Edits.folder(source, 1, folder.withoutEntry("a"))
+            val change = Edits.folderChange(source, 1, folder.withoutEntry("a"))
+            val result = change.layout
+            assertEquals(if (large) emptyList<String>() else listOf("b"), change.replacements.map { it.survivor.id })
             if (large) {
                 val retained = result.items.single()
                 assertEquals(source.items.single().copy(content = folder.withoutEntry("a")), retained)
-                assertNull(retained.folderSurvivor)
                 assertSame(result, Edits.folder(result, 1, (retained.content as FolderContent).copy(large = false)))
                 val emptyAgain = Edits.folder(result, 1, retained.content.withoutEntry("b"))
                 assertEquals(empty.items.single(), emptyAgain.items.single())
             } else {
                 assertEquals(HomeItem(1, AppContent(key), 2, 5), result.items.single())
-                assertEquals("b", result.items.single().folderSurvivor?.id)
             }
             assertEquals(source.nextId, result.nextId)
         }
@@ -66,7 +65,6 @@ class EmptyFoldersTest {
         val result = Edits.transferApp(both, key, sourceFolder = 1, sourceEntry = entry.id, targetFolder = 2)
         assertTrue(result.items.all { it.content is FolderContent && it.w == 2 && it.h == 2 })
         assertEquals(entry, (result.items.last().content as FolderContent).entries.single())
-        assertNull(result.items.first().folderSurvivor)
         val moved = Edits.transferApp(source, key, sourceFolder = 1, sourceEntry = entry.id, x = 4, y = 3)
         assertEquals(1, (moved.items.first().content as FolderContent).entries.size)
         assertEquals(AppContent(key), moved.items.last().content)
@@ -90,7 +88,7 @@ class EmptyFoldersTest {
         val swapped = Edits.transferApp(result, key, sourceFolder = 2, sourceEntry = entry.id, targetFolder = 2, index = 7)
         assertEquals(listOf("only", "target"), (swapped.items.last().content as FolderContent).entries.map { it.id })
         assertEquals(result.nextId, swapped.nextId)
-        assertTrue(swapped.items.all { it.folderSurvivor == null && it.w == 2 && it.h == 2 })
+        assertTrue(swapped.items.all { it.w == 2 && it.h == 2 })
     }
 
     @Test fun confirmedCleanupRetainsLargeFoldersAndCollapsesSmallSurvivors() {
@@ -104,7 +102,6 @@ class EmptyFoldersTest {
                 val result = clean(initial).items.single()
                 if (large) {
                     assertEquals(initial.items.single().copy(content = (initial.items.single().content as FolderContent).without(setOf(key))), result)
-                    assertNull(result.folderSurvivor)
                 } else assertEquals(HomeItem(1, AppContent(other), 0, 0), result)
             }
             val duplicate = Edits.add(HomeLayout(), FolderContent(listOf(key, key), large), 0, 0)

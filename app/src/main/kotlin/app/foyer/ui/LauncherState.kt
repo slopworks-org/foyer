@@ -29,6 +29,7 @@ import app.foyer.data.AppInfo
 import app.foyer.data.Content
 import app.foyer.data.Edits
 import app.foyer.data.HomeItem
+import app.foyer.data.LayoutChange
 import app.foyer.data.TransferResult
 import app.foyer.data.HomeLayout
 import app.foyer.data.Icon
@@ -202,8 +203,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     private var presentedLayout = graph.layout.layout.value
 
     /** Capture before old compositions and their live geometry are disposed. Never replay on load. */
-    internal fun observeFolderChanges(current: HomeLayout, icon: Float, inset: Float) {
+    internal fun observeFolderChanges(icon: Float, inset: Float) {
+        val change = graph.layout.takePresentation()
+        val current = change.layout
         if (current === presentedLayout) return
+        val replacements = change.replacements.associateBy { it.placedId }
         val previous = presentedLayout
         if (menuOwner != null && previous.items.find { it.id == menuOwner } != current.items.find { it.id == menuOwner }) {
             menu = null; menuOwner = null
@@ -218,7 +222,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             if (folder.large) return@forEach
             val next = current.items.find { it.id == old.id } ?: return@forEach
             val app = next.content as? AppContent ?: return@forEach
-            val survivor = next.folderSurvivor?.let { remaining -> folder.entries.find { it.id == remaining.id } } ?: return@forEach
+            val survivor = replacements[old.id]?.let { remaining -> folder.entries.find { it.id == remaining.survivor.id } } ?: return@forEach
             val surface = folderSurfaceBounds[old.id] ?: return@forEach
             val panel = folderTransitionId == old.id
             val start = if (panel) folderMemberFrames[old.id to survivor.id]?.invoke()?.bounds
@@ -448,11 +452,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 val folder = item.content
                 add(MenuAction(if (folder.large) R.string.folder_shrink else R.string.folder_enlarge, MenuIcons.Edit) {
                     openFolder = null
-                    graph.layout.edit { current ->
+                    graph.layout.editChange { current ->
                         val live = current.items.find { it.id == item.id }?.content as? FolderContent
-                        if (live == null || live.large && live.entries.size < 2) current else {
-                            val result = Edits.folder(current, item.id, live.copy(large = !live.large))
-                            if (result === current) folderFeedback = if (live.apps.size > 9) R.string.folder_capacity else R.string.folder_collision
+                        if (live == null || live.large && live.entries.size < 2) LayoutChange(current) else {
+                            val result = Edits.folderChange(current, item.id, live.copy(large = !live.large))
+                            if (result.layout === current) folderFeedback = if (live.apps.size > 9) R.string.folder_capacity else R.string.folder_collision
                             result
                         }
                     }
@@ -485,18 +489,18 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 add(aliasAction(app))
             }
             add(MenuAction(R.string.action_remove, MenuIcons.Close) {
-                graph.layout.edit { current ->
+                graph.layout.editChange { current ->
                     val folder = current.items.find { it.id == folderId }?.content as? FolderContent
-                    if (folder == null) current else Edits.folder(current, folderId, folder.withoutEntry(entry.id))
+                    if (folder == null) LayoutChange(current) else Edits.folderChange(current, folderId, folder.withoutEntry(entry.id))
                 }
             })
             if (app != null) uninstallAction(app)?.let(::add)
             val item = layout.items.find { it.id == folderId }
             if ((item?.content as? FolderContent)?.let { it.large && it.entries.size >= 2 } == true) {
                 add(MenuAction(R.string.folder_shrink, MenuIcons.Edit) {
-                    graph.layout.edit { current ->
+                    graph.layout.editChange { current ->
                         val folder = current.items.find { it.id == folderId }?.content as? FolderContent
-                        if (folder == null || folder.entries.size < 2) current else Edits.folder(current, folderId, folder.copy(large = false))
+                        if (folder == null || folder.entries.size < 2) LayoutChange(current) else Edits.folderChange(current, folderId, folder.copy(large = false))
                     }
                 })
             }
@@ -688,12 +692,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             }
             if (drag !== s || !s.released) return@launch
             var applied: TransferResult? = null
-            graph.layout.edit { current ->
+            graph.layout.editChange { current ->
                 val available = missing != null && keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages }
                 val destinationUnchanged = target !is DropTarget.Folder || current.items.find { it.id == folderId } == destinationSnapshot
                 val result = if (available && destinationUnchanged && target != null) plan(s, target, current) else null
                 applied = result
-                result?.layout ?: current
+                result?.change ?: LayoutChange(current)
             }
             // Visual side effects run once, after the retryable transform has committed.
             if (drag !== s) return@launch
@@ -831,8 +835,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val key = (s.content as? AppContent)?.app
         if (t is DropTarget.Merge) {
             if (key == null) return null
-            val result = Edits.mergeApps(l, t.target, key, placed, member?.folderId, member?.entryId, incomingId = s.incomingId)
-            return if (result === l) null else TransferResult(result, t.target.id, s.incomingId, t.target.id)
+            val result = Edits.mergeChange(l, t.target, key, placed, member?.folderId, member?.entryId, incomingId = s.incomingId)
+            return if (result.layout === l) null else TransferResult(result.layout, t.target.id, s.incomingId, t.target.id, result.replacements)
         }
         if (t is DropTarget.Folder || member != null) {
             if (key == null) return null
@@ -873,34 +877,35 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val incomingId = java.util.UUID.randomUUID().toString()
         scope.launch {
             val missing = graph.apps.missingFolderApps(listOf(key))
-            graph.layout.edit { current ->
+            graph.layout.editChange { current ->
                 val (x, y) = if (toDock) ((0 until HomeLayout.DOCK_SLOTS).firstOrNull { current.dockSlotFree(it) } ?: -1) to 0
                     else current.firstFree(1, 1)
                 val result = Edits.planTransferApp(current, key, sourceItem, sourceFolder, targetFolder, index, x, y, toDock,
                     key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages, sourceEntry, incomingId)
                 if (result == null) folderFeedback = R.string.folder_drop_failed
-                result?.layout ?: current
+                result?.change ?: LayoutChange(current)
             }
         }
     }
 
     fun accessibleMerge(target: HomeItem, key: app.foyer.data.AppKey, sourceItem: Long?, sourceFolder: Long?, sourceEntry: String?) {
         val source = sourceItem?.let { id -> layout.items.find { it.id == id } } ?: if (sourceItem != null) return else null
+        val incomingId = sourceEntry ?: java.util.UUID.randomUUID().toString()
         scope.launch {
             val keys = listOf(key, (target.content as AppContent).app)
             val missing = graph.apps.missingFolderApps(keys)
-            graph.layout.edit { current ->
-                val result = Edits.mergeApps(current, target, key, source, sourceFolder, sourceEntry,
-                    keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages })
-                if (result === current) folderFeedback = R.string.folder_drop_failed
+            graph.layout.editChange { current ->
+                val result = Edits.mergeChange(current, target, key, source, sourceFolder, sourceEntry,
+                    keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages }, incomingId)
+                if (result.layout === current) folderFeedback = R.string.folder_drop_failed
                 result
             }
         }
     }
 
-    fun renameFolder(id: Long, name: String) = graph.layout.edit { current ->
+    fun renameFolder(id: Long, name: String) = graph.layout.editChange { current ->
         val folder = current.items.find { it.id == id }?.content as? FolderContent
-        if (folder == null || folder.large) current else Edits.folder(current, id, folder.copy(name = name))
+        if (folder == null || folder.large) LayoutChange(current) else Edits.folderChange(current, id, folder.copy(name = name))
     }
 
     // --- widgets ---

@@ -7,7 +7,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -121,9 +120,6 @@ data class HomeItem(
     val h: Int = 1,
     val dock: Boolean = false,
 ) {
-    /** Ephemeral provenance for a live folder-to-app transition; never persisted or replayed. */
-    @kotlinx.serialization.Transient var folderSurvivor: FolderEntry? = null
-        internal set
     fun covers(cx: Int, cy: Int) = cx in x until x + w && cy in y until y + h
     fun overlaps(ox: Int, oy: Int, ow: Int, oh: Int) = x < ox + ow && ox < x + w && y < oy + oh && oy < y + h
 }
@@ -193,8 +189,22 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
         HomeLayout()
     }
 
-    fun edit(transform: (HomeLayout) -> HomeLayout) {
-        _layout.update(transform)
+    private val replacements = mutableMapOf<Long, FolderReplacement>()
+
+    @Synchronized
+    fun takePresentation(): LayoutChange =
+        LayoutChange(_layout.value, replacements.values.toList()).also { replacements.clear() }
+
+    fun edit(transform: (HomeLayout) -> HomeLayout) = editChange { LayoutChange(transform(it)) }
+
+    @Synchronized
+    fun editChange(transform: (HomeLayout) -> LayoutChange) {
+        val change = transform(_layout.value)
+        replacements.putAll(change.replacements.associateBy { it.placedId })
+        replacements.entries.removeAll { (id, transition) ->
+            change.layout.items.find { it.id == id }?.content != AppContent(transition.survivor.app)
+        }
+        _layout.value = change.layout
         val snapshot = _layout.value
         scope.launch(Dispatchers.IO) {
             runCatching { save(snapshot) }.onFailure { android.util.Log.e("Foyer", "Could not save home layout", it) }
@@ -219,15 +229,42 @@ class LayoutStore(context: Context, private val scope: CoroutineScope) {
     }
 }
 
+/** Occurrence-specific presentation metadata, owned by a live commit rather than a placed item. */
+data class FolderReplacement(val placedId: Long, val survivor: FolderEntry)
+data class LayoutChange(val layout: HomeLayout, val replacements: List<FolderReplacement> = emptyList())
+
 /** Accepted transfer, including no-op reorders; null planning results mean rejection. */
 data class TransferResult(val layout: HomeLayout, val landedId: Long,
-    val incomingId: String? = null, val destination: Long? = null)
+    val incomingId: String? = null, val destination: Long? = null,
+    val replacements: List<FolderReplacement> = emptyList()) {
+    val change get() = LayoutChange(layout, replacements)
+}
 
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
+    private fun replacement(id: Long, folder: FolderContent) =
+        folder.entries.singleOrNull()?.takeUnless { folder.large }?.let { FolderReplacement(id, it) }
+
+    fun folderChange(l: HomeLayout, id: Long, content: FolderContent): LayoutChange {
+        val next = folder(l, id, content)
+        return LayoutChange(next, if (next === l) emptyList() else listOfNotNull(replacement(id, content)))
+    }
+
+    fun reconcileFolderAppsChange(l: HomeLayout, missing: Set<AppKey>) =
+        LayoutChange(reconcileFolderApps(l, missing), l.items.mapNotNull { item ->
+            (item.content as? FolderContent)?.let { replacement(item.id, it.without(missing)) }
+        })
+
+    fun forgetPackageChange(l: HomeLayout, pkg: String, user: Long) =
+        LayoutChange(forgetPackage(l, pkg, user), l.items.mapNotNull { item ->
+            (item.content as? FolderContent)?.let { folder ->
+                replacement(item.id, folder.without(folder.apps.filter { it.pkg == pkg && it.user == user }.toSet()))
+            }
+        })
+
     /** Large folders retain their footprint at every count; only small singletons become apps. */
     private fun canonicalFolder(item: HomeItem, folder: FolderContent): HomeItem {
-        if (!folder.large && folder.entries.size == 1) return item.copy(content = AppContent(folder.entries.single().app), w = 1, h = 1).also { it.folderSurvivor = folder.entries.single() }
+        if (!folder.large && folder.entries.size == 1) return item.copy(content = AppContent(folder.entries.single().app), w = 1, h = 1)
         val normalized = folder.normalized()
         return item.copy(content = normalized, w = if (normalized.large) 2 else 1, h = if (normalized.large) 2 else 1)
     }
@@ -334,7 +371,9 @@ object Edits {
             if (result === l) return null
             if (sourceItem != null) result = remove(result, sourceItem)
             if (sourceFolder != null && !same) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
-            return TransferResult(result, targetFolder, incoming.id, targetFolder)
+            return TransferResult(result, targetFolder, incoming.id, targetFolder,
+                listOfNotNull(replacement(targetFolder, target.copy(entries = updated)),
+                    from?.takeIf { !same }?.let { replacement(sourceFolder!!, it.withoutEntry(entry!!.id)) }))
         }
         if (source != null) {
             if (dock && !l.dockSlotFree(x, source.id) || !dock && !l.isFree(x, y, 1, 1, source.id)) return null
@@ -342,7 +381,8 @@ object Edits {
         }
         val added = add(l, AppContent(key), x, y, dock = dock)
         if (added === l) return null
-        return TransferResult(if (sourceFolder == null) added else folder(added, sourceFolder, from!!.withoutEntry(entry!!.id)), l.nextId)
+        return TransferResult(if (sourceFolder == null) added else folder(added, sourceFolder, from!!.withoutEntry(entry!!.id)), l.nextId,
+            replacements = listOfNotNull(from?.let { replacement(sourceFolder!!, it.withoutEntry(entry!!.id)) }))
     }
 
     /** Replace the target in place only after validating the whole move. */
@@ -362,6 +402,15 @@ object Edits {
         if (sourceItem != null) result = remove(result, sourceItem.id)
         if (sourceFolder != null) result = folder(result, sourceFolder, from!!.withoutEntry(entry!!.id))
         return result
+    }
+
+    fun mergeChange(l: HomeLayout, target: HomeItem, key: AppKey, sourceItem: HomeItem? = null,
+        sourceFolder: Long? = null, sourceEntry: String? = null, available: Boolean = true,
+        incomingId: String = java.util.UUID.randomUUID().toString()): LayoutChange {
+        val next = mergeApps(l, target, key, sourceItem, sourceFolder, sourceEntry, available, incomingId)
+        val from = l.items.find { it.id == sourceFolder }?.content as? FolderContent
+        return LayoutChange(next, if (next === l || from == null || sourceEntry == null) emptyList()
+            else listOfNotNull(replacement(sourceFolder!!, from.withoutEntry(sourceEntry))))
     }
 
     fun reconcileFolderApps(l: HomeLayout, missing: Set<AppKey>): HomeLayout = l.copy(

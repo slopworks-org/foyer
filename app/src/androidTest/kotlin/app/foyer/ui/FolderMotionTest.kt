@@ -528,7 +528,7 @@ class FolderMotionTest {
     @Test fun failedAndCanceledDropsReturnWithoutMutation() {
         seed(9)
         rule.runOnIdle {
-            state.graph.layout.edit { Edits.folder(it, folderId, (it.items.first().content as FolderContent).copy(large = true)) }
+            state.graph.layout.editChange { Edits.folderChange(it, folderId, (it.items.first().content as FolderContent).copy(large = true)) }
         }
         rule.waitForIdle()
         for (key in listOf(apps[10], apps.first())) {

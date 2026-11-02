@@ -72,7 +72,7 @@ class FolderEntriesUiTest {
             assertEquals(entries[1], committed[2])
             rule.runOnIdle {
                 state.openFolder = null
-                graph.layout.edit { Edits.folder(it, 1, FolderContent()) }
+                graph.layout.editChange { Edits.folderChange(it, 1, FolderContent()) }
             }
             rule.waitForIdle()
             val cell = rule.runOnIdle { state.folderBounds.getValue(1) }

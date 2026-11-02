@@ -125,16 +125,16 @@ class Graph(private val context: Context) {
         scope.launch {
             val keys = layout.layout.value.items.flatMap { (it.content as? FolderContent)?.apps.orEmpty() }
             val missing = apps.missingFolderApps(keys)
-            layout.edit { Edits.reconcileFolderApps(it, missing) }
+            layout.editChange { Edits.reconcileFolderAppsChange(it, missing) }
         }
     }
 
     private fun forgetPackage(pkg: String, user: Long) {
-        layout.edit { l ->
+        layout.editChange { l ->
             l.items.mapNotNull { it.content as? WidgetContent }
                 .filter { it.provider.startsWith("$pkg/") }
                 .forEach { widgetHost.deleteAppWidgetId(it.widgetId) }
-            Edits.forgetPackage(l, pkg, user)
+            Edits.forgetPackageChange(l, pkg, user)
         }
     }
 

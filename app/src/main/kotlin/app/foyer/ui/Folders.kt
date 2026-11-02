@@ -70,9 +70,9 @@ internal fun folderTransferActions(state: LauncherState, key: AppKey, sourceItem
     val actions = mutableListOf<CustomAccessibilityAction>()
     if (sourceFolder != null) {
         actions += CustomAccessibilityAction(stringResource(R.string.action_remove)) {
-            state.graph.layout.edit { current ->
+            state.graph.layout.editChange { current ->
                 val folder = current.items.find { it.id == sourceFolder }?.content as? FolderContent
-                if (folder == null || sourceEntry == null) current else Edits.folder(current, sourceFolder, folder.withoutEntry(sourceEntry))
+                if (folder == null || sourceEntry == null) LayoutChange(current) else Edits.folderChange(current, sourceFolder, folder.withoutEntry(sourceEntry))
             }; true
         }
         val sourceFolderItem = layout.items.find { it.id == sourceFolder }

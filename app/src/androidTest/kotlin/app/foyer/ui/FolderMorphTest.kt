@@ -164,7 +164,7 @@ class FolderMorphTest {
                 val current = state!!
                 val initial = Edits.add(HomeLayout(seeded = true), FolderContent(keys), 0, 0)
                 graph.layout.edit { initial }
-                current.observeFolderChanges(initial, 56f, 5f)
+                current.observeFolderChanges(56f, 5f)
                 val entry = (initial.items.single().content as FolderContent).entries.first()
                 current.folderSurfaceBounds[1] = Rect(0f, 0f, 56f, 56f)
                 val session = DragSession(DragSource.Member(1, keys[0], entry.id), null, Offset.Zero, Offset(200f, 300f))
@@ -174,9 +174,11 @@ class FolderMorphTest {
                     current.cancelDrag()
                     current.folderLanding!!.renderedBounds = expected
                 }
-                val cleaned = Edits.reconcileFolderApps(initial, setOf(keys[1]))
-                graph.layout.edit { cleaned }
-                current.observeFolderChanges(cleaned, 56f, 5f)
+                val change = Edits.reconcileFolderAppsChange(initial, setOf(keys[1]))
+                graph.layout.editChange { change }
+                graph.layout.edit { Edits.move(it, 1, 2, 3, dock = false) }
+                val cleaned = graph.layout.layout.value
+                current.observeFolderChanges(56f, 5f)
                 val collapse = current.folderCollapses.getValue(1)
                 assertEquals(expected, collapse.start)
                 assertNull(current.drag)
@@ -435,7 +437,7 @@ class FolderMorphTest {
             rule.runOnUiThread { state.openFolder = singleton.id }
             rule.waitUntil { state.folderPanelBounds != null }
             assertEquals(singleton, graph.layout.layout.value.items.single())
-            rule.runOnUiThread { graph.layout.edit { Edits.folder(it, singleton.id, (it.items.single().content as FolderContent).let { folder -> folder.withoutEntry(folder.entries.first().id) }) } }
+            rule.runOnUiThread { graph.layout.editChange { Edits.folderChange(it, singleton.id, (it.items.single().content as FolderContent).let { folder -> folder.withoutEntry(folder.entries.first().id) }) } }
             rule.waitUntil { state.openFolder == null && state.folderTransitionId == null && state.folderPanelBounds == null }
             rule.runOnUiThread {
                 assertEquals(AppContent(key), graph.layout.layout.value.items.single().content)

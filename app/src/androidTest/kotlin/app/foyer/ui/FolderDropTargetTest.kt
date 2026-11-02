@@ -173,7 +173,7 @@ class FolderDropTargetTest {
                 capture("large-$count-menu")
                 if (count == 2) {
                     val staleShrink = rule.runOnIdle { state.menu!!.actions.first { it.label == R.string.folder_shrink } }
-                    rule.runOnIdle { graph.layout.edit { Edits.folder(it, 1, folder().withoutEntry("e0")) } }
+                    rule.runOnIdle { graph.layout.editChange { Edits.folderChange(it, 1, folder().withoutEntry("e0")) } }
                     rule.mainClock.advanceTimeBy(800)
                     rule.runOnIdle {
                         assertNull(state.menu)

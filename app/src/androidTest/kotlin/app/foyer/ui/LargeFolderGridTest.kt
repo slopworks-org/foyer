@@ -161,11 +161,11 @@ class LargeFolderGridTest {
             assertFalse(folder().large)
             assertEquals(9, folder().apps.size)
             shot("nine-apps-shrunk")
-            rule.runOnIdle { graph.layout.edit { Edits.folder(it, 1, folder().copy(large = true)) } }
+            rule.runOnIdle { graph.layout.editChange { Edits.folderChange(it, 1, folder().copy(large = true)) } }
             rule.waitForIdle()
             // Fixed empty-cell targeting, source preservation, swapping and reload through LayoutStore.
             rule.runOnIdle {
-                graph.layout.edit { Edits.reconcileFolderApps(it, setOf(apps[1], apps[6])) }
+                graph.layout.editChange { Edits.reconcileFolderAppsChange(it, setOf(apps[1], apps[6])) }
             }
             rule.waitForIdle()
             shot("nine-with-holes")
@@ -233,7 +233,7 @@ class LargeFolderGridTest {
             assertFalse(folder().large)
             assertEquals(expected.filterNotNull(), folder().apps)
             shot("shrunk-row-major")
-            rule.runOnIdle { state.menu = null; graph.layout.edit { Edits.folder(it, 1, folder().copy(large = true)) } }
+            rule.runOnIdle { state.menu = null; graph.layout.editChange { Edits.folderChange(it, 1, folder().copy(large = true)) } }
             rule.waitForIdle()
             val launchPoint = state.memberBounds.getValue(1L to state.testEntryId(1L, apps[0])).center
             rule.onRoot().performTouchInput { click(launchPoint) }

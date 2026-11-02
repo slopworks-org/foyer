@@ -121,7 +121,7 @@ class FolderSingletonFilmTest {
                     assertNull(state.openFolder)
                 }
                 reset("01 closed small cleanup")
-                main { activity.graph.layout.edit { Edits.reconcileFolderApps(it, setOf(apps[0])) } }
+                main { activity.graph.layout.editChange { Edits.reconcileFolderAppsChange(it, setOf(apps[0])) } }
                 SystemClock.sleep(1000); assertSurvivor()
                 reset("02 open small move to feed"); open()
                 begin(point { state.panelMemberBounds.getValue(1L to "depart").center }); approach(feed()); release(); assertSurvivor()
@@ -216,7 +216,7 @@ class FolderSingletonFilmTest {
                 main { assertEquals(listOf(true, false, true, false, true, false, true, false), haptics.map { it.second }) }
                 reset("11 cleanup while survivor held"); open()
                 begin(point { state.panelMemberBounds.getValue(1L to "survive").center })
-                main { activity.graph.layout.edit { Edits.reconcileFolderApps(it, setOf(apps[0])) } }
+                main { activity.graph.layout.editChange { Edits.reconcileFolderAppsChange(it, setOf(apps[0])) } }
                 waitFor("held survivor handed off") { state.drag == null && state.folderLanding == null && state.folderCollapses.isEmpty() }
                 send(MotionEvent.ACTION_CANCEL, pointer)
                 assertSurvivor()
@@ -224,7 +224,7 @@ class FolderSingletonFilmTest {
                 begin(point { state.panelMemberBounds.getValue(1L to "survive").center }); approach(feed())
                 main {
                     state.cancelDrag()
-                    activity.graph.layout.edit { Edits.reconcileFolderApps(it, setOf(apps[0])) }
+                    activity.graph.layout.editChange { Edits.reconcileFolderAppsChange(it, setOf(apps[0])) }
                 }
                 waitFor("returning survivor handed off") { state.drag == null && state.folderLanding == null && state.folderCollapses.isEmpty() }
                 send(MotionEvent.ACTION_CANCEL, pointer)
