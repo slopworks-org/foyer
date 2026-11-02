@@ -18,7 +18,7 @@ class FolderGeometryTest {
             val inset = LARGE_FOLDER_INSET.value
             for (slot in 0..8) {
                 val cell = largeFolderCell(surface, slot, inset)
-                val frame = largeFolderFeedbackFrame(cell).deflate(4f)
+                val frame = cell.deflate(4f)
                 assertTrue("slot=$slot", cell.contains(frame.topLeft) && cell.contains(frame.bottomRight))
                 assertEquals(cell.center, frame.center)
                 val ghost = icon * largeFolderGhostScale(cell, icon, 7.5f)

@@ -67,7 +67,7 @@ class FolderDropTargetTest {
                     rule.runOnIdle {
                         state.drag?.let { drag ->
                             File(directory, "${file.nameWithoutExtension}.txt").writeText(
-                                "anchor=${drag.anchor}; window=${state.rootCoords!!.localToWindow(Offset.Zero)}; iconPx=${with(rule.density) { state.iconSize.toPx() }}; scale=${drag.visualScale}; alpha=${drag.visualAlpha}")
+                                "anchor=${drag.anchor}; window=${state.rootCoords!!.localToWindow(Offset.Zero)}; iconPx=${with(rule.density) { state.iconSize.toPx() }}; scale=${drag.visualScale}")
                         }
                     }
                     // Allow SurfaceFlinger to latch the themed frame; the Compose clock is paused.
@@ -205,7 +205,11 @@ class FolderDropTargetTest {
                 rule.mainClock.advanceTimeBy(600)
                 rule.runOnIdle {
                     assertEquals(releaseScroll, state.folderGridScroll, .1f)
-                    assertSame(pending, state.folderDropPreview(state.drag!!, includeReleased = true))
+                    val held = state.folderDropPreview(state.drag!!, includeReleased = true)!!
+                    assertEquals(pending.panelOrder, held.panelOrder)
+                    assertEquals(pending.slot, held.slot)
+                    assertEquals(pending.entryId, held.entryId)
+                    assertEquals(pending.folderId, held.folderId)
                     if (outcome == "cancel") state.cancelDrag()
                     gate.complete(if (outcome == "reject") setOf(app.key) else emptySet())
                     validationGate = null
@@ -287,7 +291,6 @@ class FolderDropTargetTest {
                 }
                 rule.mainClock.advanceTimeBy(800)
                 marker(preview()).assertExists()
-                rule.runOnIdle { assertEquals(1f, state.drag!!.visualAlpha) }
                 val rim = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
                 val cell = rule.runOnIdle { largeFolderCell(state.folderSurfaceBounds.getValue(1), 4, state.folderInsetPx) }
                 assertEquals(cell.width, rim.width, 1.1f)
@@ -313,7 +316,6 @@ class FolderDropTargetTest {
                     assertEquals(cell.center.x, bounds.center.x, 1.1f)
                     assertEquals(cell.center.y, bounds.center.y, 1.1f)
                     assertEquals(cell.width, bounds.width, 1.1f)
-                    rule.runOnIdle { assertEquals(1f, state.drag!!.visualAlpha) }
                     capture("grid-$count-slot-$slot")
                 }
             }

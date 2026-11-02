@@ -29,6 +29,7 @@ import app.foyer.data.AppInfo
 import app.foyer.data.Content
 import app.foyer.data.Edits
 import app.foyer.data.HomeItem
+import app.foyer.data.TransferResult
 import app.foyer.data.HomeLayout
 import app.foyer.data.Icon
 import app.foyer.data.ShortcutContent
@@ -72,20 +73,29 @@ sealed interface DragSource {
     data class New(val content: Content) : DragSource
 }
 
+internal enum class MergePhase { Preview, Released, Reversing, Committed }
+
 internal class MergePreview(val target: HomeItem, val bounds: androidx.compose.ui.geometry.Rect, val incoming: Icon?) {
     val progress = Animatable(0f)
-    var released by mutableStateOf(false)
-    var committed by mutableStateOf(false)
+    var phase by mutableStateOf(MergePhase.Preview)
+    val released get() = phase != MergePhase.Preview
+    val committed get() = phase == MergePhase.Committed
     var job: kotlinx.coroutines.Job? = null
 }
 
-internal data class FolderLanding(val folderId: Long, val key: app.foyer.data.AppKey,
+internal sealed interface LandingResult {
+    data object Pending : LandingResult
+    data class Committed(val entryId: String?) : LandingResult
+    data object Returning : LandingResult
+}
+
+internal data class FolderLanding(val source: DragSession, val folderId: Long, val key: app.foyer.data.AppKey,
     val icon: Icon?, val origin: Offset, val scale: Float, val velocity: Offset = Offset.Zero,
-    val releasedNanos: Long = System.nanoTime(), val initialAlpha: Float = 1f) {
-    var entryId by mutableStateOf<String?>(null)
-    var validated by mutableStateOf(false)
-    var returning by mutableStateOf(false)
-    var source: DragSession? = null
+    val releasedNanos: Long = System.nanoTime()) {
+    var result by mutableStateOf<LandingResult>(LandingResult.Pending)
+    val entryId get() = (result as? LandingResult.Committed)?.entryId
+    val validated get() = result != LandingResult.Pending
+    val returning get() = result == LandingResult.Returning
     var renderedBounds: androidx.compose.ui.geometry.Rect? = null
 }
 
@@ -106,8 +116,9 @@ class DragSession(
     val anchorOffset: Offset,
     pointer: Offset,
 ) {
+    internal val incomingId = (source as? DragSource.Member)?.entryId ?: java.util.UUID.randomUUID().toString()
+    internal var previewCache: Pair<Pair<HomeLayout, DropTarget.Folder>, FolderDropPreview?>? = null
     var visualScale = 1f
-    var visualAlpha = 1f
     internal var pendingFolderDrop: FolderDropPreview? = null
     val origin = pointer + anchorOffset
     var released by mutableStateOf(false)
@@ -175,13 +186,17 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     val folderBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
     var folderInsetPx = 0f
     val folderSurfaceBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
-    var folderTransitionId by mutableStateOf<Long?>(null)
-    var folderGridBounds: androidx.compose.ui.geometry.Rect? = null
-    var folderHitGridBounds: androidx.compose.ui.geometry.Rect? = null
-    var folderGridColumns = 2
-    var folderRowHeight = 1f
-    var folderGridScroll = 0f
-    internal var folderContentViewport by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    internal var folderPanel by mutableStateOf<FolderPanelGeometry?>(null)
+        private set
+    val folderTransitionId get() = folderPanel?.id
+    val folderGridBounds get() = folderPanel?.grid
+    val folderHitGridBounds get() = folderPanel?.hitGrid
+    val folderGridColumns get() = folderPanel?.columns ?: 2
+    val folderRowHeight get() = folderPanel?.rowHeight ?: 1f
+    val folderGridScroll get() = folderPanel?.scroll ?: 0f
+    internal val folderContentViewport get() = folderPanel?.viewport
+    internal fun registerPanel(panel: FolderPanelGeometry) { folderPanel = panel }
+    internal fun clearPanel(panel: FolderPanelGeometry) { if (folderPanel === panel) folderPanel = null }
     internal var folderLanding by mutableStateOf<FolderLanding?>(null)
     internal val folderCollapses = mutableStateMapOf<Long, FolderCollapse>()
     private var presentedLayout = graph.layout.layout.value
@@ -214,7 +229,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 (session.source as? DragSource.Member)?.let { it.folderId == old.id && it.entryId == survivor.id } == true
             }
             val flight = folderLanding?.takeIf { landing ->
-                (landing.source?.source as? DragSource.Member)?.let { it.folderId == old.id && it.entryId == survivor.id } == true
+                (landing.source.source as? DragSource.Member)?.let { it.folderId == old.id && it.entryId == survivor.id } == true
             }
             val movingFrame = flight?.renderedBounds ?: (held ?: flight?.source)?.let { session ->
                 val diameter = icon * session.visualScale
@@ -222,15 +237,12 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                     androidx.compose.ui.geometry.Size(diameter, diameter))
             }
             if (held != null || flight != null) {
-                validationJob?.cancel()
-                hoverJob?.cancel()
-                hoverFolder = null
-                resetMerge()
+                stopGestureWork(held ?: flight?.source)
                 if (flight != null) folderLanding = null
                 if (held != null) drag = null
             }
-            val frame = movingFrame ?: start ?: folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.entries.size,
-                if (folder.large) survivor.slot ?: 0 else folder.entries.indexOf(survivor), icon, if (folder.large) inset * 3.2f else inset)
+            val frame = movingFrame ?: start ?: folderMemberStart(surface, false, folder.entries.size,
+                folder.entries.indexOf(survivor), icon, inset)
             folderCollapses[old.id] = FolderCollapse(old, app.app, frame,
                 if (panel) folderPanelBounds ?: surface else surface, panel, appFor(app)?.icon)
             if (menuOwner == old.id) { menu = null; menuOwner = null }
@@ -240,20 +252,17 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     internal val folderMemberFrames = mutableMapOf<Pair<Long, String>, () -> FolderMemberVisual?>()
     val memberBounds = mutableStateMapOf<Pair<Long, String>, androidx.compose.ui.geometry.Rect>()
     val panelMemberBounds = mutableStateMapOf<Pair<Long, String>, androidx.compose.ui.geometry.Rect>()
-    var folderPanelBounds: androidx.compose.ui.geometry.Rect? = null
+    val folderPanelBounds get() = folderPanel?.bounds
     private var hoverJob: kotlinx.coroutines.Job? = null
     private var hoverFolder: Long? = null
     val appIconBounds = mutableStateMapOf<Long, androidx.compose.ui.geometry.Rect>()
     // Bounds must belong to the currently measured layout, not a previous scroll/reflow.
     internal val appIconMeasurements = mutableMapOf<Long, Pair<HomeItem, Int>>()
-    var mergeCandidate by mutableStateOf<Long?>(null)
-        private set
-    var mergeReady by mutableStateOf<Long?>(null)
-        private set
+    val mergeReady get() = mergeIntent.candidate
     internal var mergeFeedback: ((Boolean) -> Unit)? = null
     internal var platformMergeFeedback: (Boolean) -> Unit = {}
     private val mergeReadiness = MergeReadiness { (mergeFeedback ?: platformMergeFeedback)(it) }
-    private var mergeIntent = MergeIntent()
+    private var mergeIntent by mutableStateOf(MergeIntent())
     internal val mergePreviews = androidx.compose.runtime.mutableStateListOf<MergePreview>()
     internal var feedAutoScrolling = false
     private var lastFeedScroll = 0
@@ -546,12 +555,19 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     // --- drag & drop ---
 
+    private fun stopGestureWork(session: DragSession?) {
+        if (drag !== session && folderLanding?.source !== session) return
+        validationJob?.cancel()
+        hoverJob?.cancel()
+        hoverFolder = null
+        resetMerge()
+    }
+
     fun startDrag(session: DragSession) {
         (session.source as? DragSource.Placed)?.let { folderCollapses.remove(it.item.id) }
         menu = null
-        validationJob?.cancel()
+        stopGestureWork(drag)
         folderLanding = null
-        resetMerge()
         mergePreviews.forEach { it.job?.cancel() }
         mergePreviews.clear()
         lastFeedScroll = feedScroll.value
@@ -573,20 +589,15 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val next = mergeIntent.update(session.anchor, icons, scrolling)
         if (next.candidate != mergeIntent.candidate) {
             reverseMergePreviews()
-            mergeReadiness.update(null)
-            mergeReady = null
         }
-        mergeIntent = next
-        mergeCandidate = next.candidate
-        val candidate = next.candidate
         // Readiness is spatial. Emit its edge before scheduling any visual response.
-        mergeReady = candidate
-        mergeReadiness.update(candidate)
+        updateMergeIntent(next)
+        val candidate = next.candidate
         if (candidate != null && mergePreviews.none { it.target.id == candidate && !it.released }) {
             val item = layout.items.find { it.id == candidate } ?: return
             val preview = mergePreviews.firstOrNull { it.target == item } ?: MergePreview(item, icons[candidate] ?: return, session.icon).also { mergePreviews += it }
             preview.job?.cancel()
-            preview.released = false
+            preview.phase = MergePhase.Preview
             preview.job = scope.launch {
                 preview.progress.animateTo(1f, androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing))
             }
@@ -604,8 +615,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     private fun reverseMergePreviews() {
         mergePreviews.filter { !it.committed }.forEach { preview ->
-            if (!preview.released) {
-                preview.released = true
+            if (preview.phase != MergePhase.Reversing) {
+                preview.phase = MergePhase.Reversing
                 preview.job?.cancel()
                 preview.job = scope.launch {
                     preview.progress.animateTo(0f, androidx.compose.animation.core.tween(160, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
@@ -615,12 +626,14 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
     }
 
+    private fun updateMergeIntent(next: MergeIntent, committed: Boolean = false) {
+        if (!committed) mergeReadiness.update(mergeIntent.candidate, next.candidate)
+        mergeIntent = next
+    }
+
     private fun resetMerge() {
-        mergeReadiness.update(null)
+        updateMergeIntent(MergeIntent())
         reverseMergePreviews()
-        mergeIntent = MergeIntent()
-        mergeCandidate = null
-        mergeReady = null
     }
 
     private fun mergeIcons(s: DragSession): Map<Long, androidx.compose.ui.geometry.Rect> {
@@ -636,20 +649,14 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
 
     fun cancelDrag() {
         if (drag == null) folderLanding?.let { finishLanding(it) }
-        validationJob?.cancel()
-        mergePreviews.filter { !it.committed }.forEach { it.released = false }
-        resetMerge()
+        stopGestureWork(drag)
         val session = drag
         if (session != null && !session.isWidget && session.content is AppContent) {
-            val flight = folderLanding ?: FolderLanding(-1, (session.content as AppContent).app, session.icon, session.anchor, session.visualScale, initialAlpha = session.visualAlpha)
-            flight.source = session
-            flight.returning = true
-            flight.validated = true
+            val flight = folderLanding ?: FolderLanding(session, -1, (session.content as AppContent).app, session.icon, session.anchor, session.visualScale)
+            flight.result = LandingResult.Returning
             session.released = true
             folderLanding = flight
         } else { folderLanding = null; drag = null }
-        hoverJob?.cancel()
-        hoverFolder = null
         if (drag == null && !searchOpen) query = ""
     }
 
@@ -658,7 +665,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         refreshDragTargets() // Release always uses current geometry and eligibility.
         val target = targetFor(s)
         val preview = mergePreviews.lastOrNull { it.target.id == (target as? DropTarget.Merge)?.target?.id && !it.released }
-        if (preview == null) resetMerge() else preview.released = true
+        if (preview == null) resetMerge() else preview.phase = MergePhase.Released
         hoverJob?.cancel()
         hoverFolder = null
         s.pendingFolderDrop = folderDropPreview(s)
@@ -666,8 +673,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val key = (s.content as? AppContent)?.app
         val folderId = (target as? DropTarget.Folder)?.id ?: (target as? DropTarget.Merge)?.target?.id ?: -1
         val destinationSnapshot = layout.items.find { it.id == folderId }
-        val flight = key?.takeIf { folderId >= 0 }?.let { FolderLanding(folderId, it, s.icon, s.anchor, s.visualScale, velocity, initialAlpha = s.visualAlpha).also {
-            it.source = s
+        val flight = key?.takeIf { folderId >= 0 }?.let { FolderLanding(s, folderId, it, s.icon, s.anchor, s.visualScale, velocity).also {
             folderLanding = it
         } }
         validationJob?.cancel()
@@ -681,44 +687,33 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 null
             }
             if (drag !== s || !s.released) return@launch
-            var applied: Pair<HomeLayout, Long>? = null
-            var entryId: String? = null
+            var applied: TransferResult? = null
             graph.layout.edit { current ->
                 val available = missing != null && keys.all { it !in missing && (it.pkg to it.user) !in graph.apps.removedPackages }
                 val destinationUnchanged = target !is DropTarget.Folder || current.items.find { it.id == folderId } == destinationSnapshot
                 val result = if (available && destinationUnchanged && target != null) plan(s, target, current) else null
                 applied = result
-                if (result != null && folderId >= 0) {
-                    val before = (current.items.find { it.id == folderId }?.content as? FolderContent)?.entries.orEmpty().map { it.id }.toSet()
-                    entryId = (s.source as? DragSource.Member)?.takeIf { it.folderId == folderId }?.entryId
-                        ?: (result.first.items.find { it.id == folderId }?.content as? FolderContent)?.entries?.lastOrNull { it.id !in before }?.id
-                }
-                result?.first ?: current
+                result?.layout ?: current
             }
             // Visual side effects run once, after the retryable transform has committed.
             if (drag !== s) return@launch
             if (applied != null && folderId >= 0 && flight != null) {
-                flight.entryId = entryId
-                flight.validated = true
-                preview?.committed = true
+                flight.result = LandingResult.Committed(applied!!.incomingId)
+                preview?.phase = MergePhase.Committed
                 if (s.source is DragSource.Member && folderId != s.source.folderId) openFolder = null
                 drag = null
             } else if (applied != null) {
                 if (s.source is DragSource.Member) openFolder = null
-                dropOrigins[applied!!.second] = s.anchor
+                dropOrigins[applied!!.landedId] = s.anchor
                 folderLanding = null
                 drag = null
             } else {
-                preview?.let { it.released = false }
                 resetMerge()
-                if (flight != null) { flight.returning = true; flight.validated = true }
+                if (flight != null) { flight.result = LandingResult.Returning }
                 else if (key != null) cancelDrag()
                 else { s.placedId?.let { dropOrigins[it] = s.anchor }; drag = null }
             }
-            if (applied != null) mergeReadiness.consume() else mergeReadiness.update(null)
-            mergeCandidate = null
-            mergeReady = null
-            mergeIntent = MergeIntent()
+            updateMergeIntent(MergeIntent(), committed = applied != null)
             if (drag == null && !searchOpen) query = ""
         }
     }
@@ -739,13 +734,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             focusManager?.clearFocus()
             keyboard?.hide()
         }
-        if (folderTransitionId != null && folderTransitionId !in ids) {
-            folderTransitionId = null
-            folderPanelBounds = null
-            folderGridBounds = null
-            folderHitGridBounds = null
-            folderContentViewport = null
-        }
+        folderPanel?.takeIf { it.id !in ids }?.let(::clearPanel)
         if (hoverFolder != null && hoverFolder !in ids) { hoverJob?.cancel(); hoverFolder = null }
         mergePreviews.filter { it.committed && it.target.id !in ids }.toList().forEach { mergePreviews.remove(it) }
         folderBounds.keys.retainAll(ids)
@@ -788,7 +777,6 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
         if (s.content is AppContent) {
             mergeIntent.candidate?.let { id ->
-                if (id != mergeReady) return null
                 return layout.items.find { it.id == id }?.let { DropTarget.Merge(it) }
             }
             folderSurfaceBounds.entries.firstOrNull { (id, bounds) ->
@@ -821,40 +809,39 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     internal fun folderDropPreview(s: DragSession, includeReleased: Boolean = false): FolderDropPreview? {
         if (s.released) return s.pendingFolderDrop.takeIf { includeReleased && folderLanding?.returning != true }
         val target = targetFor(s) as? DropTarget.Folder ?: return null
-        val result = plan(s, target)?.first ?: return null
-        val before = layout.items.find { it.id == target.id }?.content as? FolderContent ?: return null
-        val destination = result.items.find { it.id == target.id } ?: return null
-        if (destination.content is AppContent) {
-            val entry = destination.folderSurvivor ?: return null
-            return FolderDropPreview(target.id, before, entry.id, 0, standalone = destination)
+        val cacheKey = layout to target
+        s.previewCache?.takeIf { it.first == cacheKey }?.let { return it.second }
+        val result = plan(s, target)
+        val preview = result?.let {
+            val before = layout.items.find { it.id == target.id }?.content as? FolderContent ?: return@let null
+            val destination = it.layout.items.find { item -> item.id == target.id } ?: return@let null
+            val incoming = it.incomingId ?: return@let null
+            if (destination.content is AppContent) FolderDropPreview(target.id, before, incoming, 0, standalone = destination)
+            else (destination.content as? FolderContent)?.let { folder -> folderDropPreview(target.id, folder, incoming) }
         }
-        val after = destination.content as? FolderContent ?: return null
-        val member = s.source as? DragSource.Member
-        val entry = if (member?.folderId == target.id) member.entryId
-            else after.entries.singleOrNull { incoming -> before.entries.none { it.id == incoming.id } }?.id
-        return folderDropPreview(target.id, after, entry ?: return null)
+        s.previewCache = cacheKey to preview
+        return preview
     }
 
     /** The layout after dropping, plus the id of the item that landed; null if it cannot go there. */
-    fun plan(s: DragSession, t: DropTarget, l: HomeLayout = layout): Pair<HomeLayout, Long>? {
+    fun plan(s: DragSession, t: DropTarget, l: HomeLayout = layout): TransferResult? {
         val placed = (s.source as? DragSource.Placed)?.item?.let { p -> l.items.firstOrNull { it.id == p.id } }
         if (s.source is DragSource.Placed && placed != s.source.item) return null
         val member = s.source as? DragSource.Member
         val key = (s.content as? AppContent)?.app
         if (t is DropTarget.Merge) {
             if (key == null) return null
-            val result = Edits.mergeApps(l, t.target, key, placed, member?.folderId, member?.entryId)
-            return if (result === l) null else result to t.target.id
+            val result = Edits.mergeApps(l, t.target, key, placed, member?.folderId, member?.entryId, incomingId = s.incomingId)
+            return if (result === l) null else TransferResult(result, t.target.id, s.incomingId, t.target.id)
         }
         if (t is DropTarget.Folder || member != null) {
             if (key == null) return null
-            val result = Edits.transferApp(l, key, placed?.id, member?.folderId,
+            return Edits.planTransferApp(l, key, placed?.id, member?.folderId,
                 (t as? DropTarget.Folder)?.id, (t as? DropTarget.Folder)?.index ?: Int.MAX_VALUE,
                 (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: 0,
-                (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock, sourceEntry = member?.entryId)
-            return if (result === l) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
+                (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock, sourceEntry = member?.entryId, incomingId = s.incomingId)
         }
-        return when (t) {
+        val result = when (t) {
             is DropTarget.Folder, is DropTarget.Merge -> null
             is DropTarget.Feed -> {
                 if (l.isFree(t.x, t.y, s.w, s.h, ignore = placed?.id)) {
@@ -878,19 +865,21 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 }
             }
         }
+        return result?.let { TransferResult(it.first, it.second) }
     }
 
     fun accessibleTransfer(key: app.foyer.data.AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,
                            targetFolder: Long? = null, index: Int = Int.MAX_VALUE, toDock: Boolean = false, sourceEntry: String? = null) {
+        val incomingId = java.util.UUID.randomUUID().toString()
         scope.launch {
             val missing = graph.apps.missingFolderApps(listOf(key))
             graph.layout.edit { current ->
                 val (x, y) = if (toDock) ((0 until HomeLayout.DOCK_SLOTS).firstOrNull { current.dockSlotFree(it) } ?: -1) to 0
                     else current.firstFree(1, 1)
-                val result = Edits.transferApp(current, key, sourceItem, sourceFolder, targetFolder, index, x, y, toDock,
-                    key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages, sourceEntry)
-                if (result === current) folderFeedback = R.string.folder_drop_failed
-                result
+                val result = Edits.planTransferApp(current, key, sourceItem, sourceFolder, targetFolder, index, x, y, toDock,
+                    key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages, sourceEntry, incomingId)
+                if (result == null) folderFeedback = R.string.folder_drop_failed
+                result?.layout ?: current
             }
         }
     }

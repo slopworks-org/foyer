@@ -57,7 +57,7 @@ class LargeFolderGridTest {
                 }
                 for (slot in 0..8) {
                     val cell = largeFolderCell(surface, slot, state.folderInsetPx)
-                    val frame = largeFolderFeedbackFrame(cell).deflate(with(rule.density) { 4.dp.toPx() })
+                    val frame = cell.deflate(with(rule.density) { 4.dp.toPx() })
                     assertEquals(cell.center, frame.center)
                     assertTrue(cell.contains(frame.topLeft) && cell.contains(frame.bottomRight))
                     for ((identity, artwork) in state.memberBounds) {

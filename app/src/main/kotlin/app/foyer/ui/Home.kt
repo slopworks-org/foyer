@@ -893,7 +893,6 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
             .testTag("drag-ghost")
             .graphicsLayer {
                 s.visualScale = lift.value
-                s.visualAlpha = 1f
                 alpha = 1f
                 scaleX = lift.value
                 scaleY = lift.value

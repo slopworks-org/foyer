@@ -53,7 +53,6 @@ class FolderGridFeedbackFilmTest {
                         main {
                             val cell = largeFolderCell(state.folderSurfaceBounds.getValue(1), slot, state.folderInsetPx)
                             state.moveDrag(cell.center)
-                            assertEquals(1f, state.drag!!.visualAlpha)
                         }
                         SystemClock.sleep(140)
                     }

@@ -148,13 +148,12 @@ class FolderEntriesUiTest {
                 val point = state.appIconBounds.getValue(1).center - Offset(0f, state.cellH)
                 state.startDrag(DragSession(DragSource.New(AppContent(app)), null, Offset.Zero, point))
                 state.moveDrag(point)
-                assertNull(state.mergeCandidate)
+                assertNull(state.mergeReady)
                 kotlinx.coroutines.runBlocking { state.feedScroll.scrollTo(state.cellH.toInt()) }
             }
             rule.mainClock.advanceTimeBy(64)
             rule.runOnIdle {
                 state.refreshDragTargets()
-                assertEquals(1L, state.mergeCandidate)
                 assertEquals(1L, state.mergeReady)
             }
             rule.mainClock.advanceTimeBy(16)
@@ -167,7 +166,6 @@ class FolderEntriesUiTest {
             }
             rule.mainClock.advanceTimeBy(64)
             rule.runOnIdle {
-                assertNull(state.mergeCandidate)
                 assertNull(state.mergeReady)
                 state.cancelDrag()
             }

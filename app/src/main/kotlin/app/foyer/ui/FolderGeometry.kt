@@ -1,10 +1,23 @@
 package app.foyer.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import app.foyer.data.FolderContent
+
+/** One panel registration; hit geometry deliberately stays independent of render geometry. */
+internal class FolderPanelGeometry(val id: Long) {
+    var bounds: Rect? = null
+    var grid: Rect? = null
+    var hitGrid: Rect? = null
+    var columns = 2
+    var rowHeight = 1f
+    var scroll = 0f
+    var viewport by androidx.compose.runtime.mutableStateOf<Rect?>(null)
+}
 
 internal val LARGE_FOLDER_INSET = 12.dp
 internal const val LARGE_FOLDER_ICON_SCALE = .70f
@@ -120,9 +133,6 @@ internal fun largeFolderCell(surface: Rect, slot: Int, inset: Float): Rect {
     val size = Size(grid.width / 3, grid.height / 3)
     return Rect(Offset(grid.left + size.width * (slot % 3), grid.top + size.height * (slot / 3)), size)
 }
-
-/** The drawing primitive supplies identical 4dp gutters inside every destination cell. */
-internal fun largeFolderFeedbackFrame(cell: Rect): Rect = cell
 
 /** Leave the 4dp gutter, 1.5dp stroke and 2dp breathing room visible around opaque artwork. */
 internal fun largeFolderGhostScale(cell: Rect, icon: Float, clearance: Float): Float =

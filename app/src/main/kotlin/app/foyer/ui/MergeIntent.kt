@@ -14,13 +14,9 @@ internal data class MergeIntent(val candidate: Long? = null) {
 
 /** Emits readiness edges, never hover or animation callbacks. Release consumes without an exit. */
 internal class MergeReadiness(private val feedback: (Boolean) -> Unit) {
-    var ready: Long? = null
-        private set
-    fun update(next: Long?) {
-        if (next == ready) return
-        if (ready != null) feedback(false)
-        ready = next
+    fun update(previous: Long?, next: Long?) {
+        if (next == previous) return
+        if (previous != null) feedback(false)
         if (next != null) feedback(true)
     }
-    fun consume() { ready = null }
 }

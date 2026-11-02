@@ -285,15 +285,10 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
     val ime = WindowInsets.ime.getBottom(density).toFloat()
     val close = { state.focusManager?.clearFocus(); state.keyboard?.hide(); state.openFolder = null }
     BackHandler { state.cancelDrag(); close() }
-    DisposableEffect(id) {
-        state.folderTransitionId = id
-        onDispose {
-            state.folderTransitionId = null
-            state.folderPanelBounds = null
-            state.folderGridBounds = null
-            state.folderHitGridBounds = null
-            state.folderContentViewport = null
-        }
+    val geometry = remember(id) { FolderPanelGeometry(id) }
+    DisposableEffect(geometry) {
+        state.registerPanel(geometry)
+        onDispose { state.clearPanel(geometry) }
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val width = with(density) { maxWidth.toPx() }
@@ -310,44 +305,44 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
             // Retain the held occurrence's composition and pointer owner during reordering.
             entry ?: folder.entries.find { it.id == member }
         } else folder.entries
-        val columns = folderColumns(order.size, folder.large)
-        val rows = ceil(order.size.toFloat() / columns).toInt().coerceAtLeast(if (columns == 2) 2 else 1)
-        // The reference panel is about 4.85 home-icon diameters wide, with generous row spacing.
+        val columns = folderColumns(order.size)
         val icon = state.iconSize
         val rowHeight = icon * 1.8f
-        val desiredRect = folderPanelRect(anchor, viewport, with(density) {
-            Size((icon * (columns * 1.6f + .05f)).toPx(), (rowHeight * rows + 64.dp).toPx())
-        })
-        // Pending gaps may expand the panel, but must not move the insertion hit targets.
-        val hitColumns = folderColumns(folder.apps.size, folder.large)
-        val hitRows = ceil(folder.apps.size.toFloat() / hitColumns).toInt().coerceAtLeast(if (hitColumns == 2) 2 else 1)
-        val hitRect = folderPanelRect(anchor, viewport, with(density) {
-            Size((icon * (hitColumns * 1.6f + .05f)).toPx(), (rowHeight * hitRows + 64.dp).toPx())
-        })
-        val left by animateFloatAsState(desiredRect.left, tween(240), label = "panel left")
-        val top by animateFloatAsState(desiredRect.top, tween(240), label = "panel top")
-        val right by animateFloatAsState(desiredRect.right, tween(240), label = "panel right")
-        val bottomEdge by animateFloatAsState(desiredRect.bottom, tween(240), label = "panel bottom")
-        val rect = Rect(left, top, right, bottomEdge)
-        val preview = folderPreviewMembers(folder.apps.size, folder.large)
+        fun panelRect(count: Int): Rect {
+            val cols = folderColumns(count)
+            val rows = ceil(count.toFloat() / cols).toInt().coerceAtLeast(if (cols == 2) 2 else 1)
+            return folderPanelRect(anchor, viewport, with(density) {
+                Size((icon * (cols * 1.6f + .05f)).toPx(), (rowHeight * rows + 64.dp).toPx())
+            })
+        }
+        fun gridRect(panel: Rect) = with(density) {
+            Rect(panel.left + 8.dp.toPx(), panel.top + 12.dp.toPx(), panel.right - 8.dp.toPx(), panel.bottom - 52.dp.toPx())
+        }
+        val desiredRect = panelRect(order.size)
+        val hitRect = panelRect(folder.apps.size)
+        val rect by androidx.compose.animation.core.animateValueAsState(desiredRect,
+            androidx.compose.animation.core.TwoWayConverter<Rect, androidx.compose.animation.core.AnimationVector4D>(
+                { androidx.compose.animation.core.AnimationVector4D(it.left, it.top, it.right, it.bottom) },
+                { Rect(it.v1, it.v2, it.v3, it.v4) }), tween(240), label = "panel bounds")
+        val preview = folderPreviewMembers(folder.apps.size)
         val p = expansion.value
         val current = androidx.compose.ui.geometry.lerp(anchor, rect, p)
-        val radius = with(density) { if (folder.large) 24.dp.toPx() else anchor.width / 2 }
+        val radius = anchor.width / 2
         val corner = with(density) { (radius + (24.dp.toPx() - radius) * p).toDp() }
         val labels = ((p - .45f) / .55f).coerceIn(0f, 1f)
         val gridState = key(id) { rememberLazyGridState() }
         val liveMemberFrames = remember(id) { mutableMapOf<String, () -> Rect?>() }
         val rowPx = with(density) { rowHeight.toPx() }
         val iconPx = with(density) { icon.toPx() }
-        val gridRect = Rect(rect.left + with(density) { 8.dp.toPx() }, rect.top + with(density) { 12.dp.toPx() },
-            rect.right - with(density) { 8.dp.toPx() }, rect.bottom - with(density) { 52.dp.toPx() })
+        val gridRect = gridRect(rect)
         val scroll = gridState.firstVisibleItemIndex / columns * rowPx + gridState.firstVisibleItemScrollOffset
         SideEffect {
-            state.folderHitGridBounds = Rect(hitRect.left + with(density) { 8.dp.toPx() }, hitRect.top + with(density) { 12.dp.toPx() },
-                hitRect.right - with(density) { 8.dp.toPx() }, hitRect.bottom - with(density) { 52.dp.toPx() })
-            state.folderGridColumns = columns
-            state.folderGridScroll = scroll
-            state.folderContentViewport = folderContentClip(current, gridRect, p)
+            if (state.folderPanel === geometry) {
+                geometry.hitGrid = gridRect(hitRect)
+                geometry.columns = columns
+                geometry.scroll = scroll
+                geometry.viewport = folderContentClip(current, gridRect, p)
+            }
         }
         LaunchedEffect(id, drag) {
             val zone = with(density) { 56.dp.toPx() }
@@ -367,7 +362,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .22f * p)).clickable(onClick = close))
         Box(Modifier.offset { IntOffset(current.left.roundToInt(), current.top.roundToInt()) }
             .size(with(density) { current.width.toDp() }, with(density) { current.height.toDp() })
-            .onGloballyPositioned { state.folderPanelBounds = it.boundsInRoot() }
+            .onGloballyPositioned { if (state.folderPanel === geometry) geometry.bounds = it.boundsInRoot() }
             .clip(RoundedCornerShape(corner)).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable(interactionSource = null, indication = null) {}) {
             Column(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
                 .requiredSize(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
@@ -376,8 +371,10 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                 LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState, userScrollEnabled = drag == null,
                     modifier = Modifier.weight(1f).fillMaxWidth().testTag("folder-grid-$id")
                     .onGloballyPositioned {
-                        state.folderGridBounds = Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat()))
-                        state.folderRowHeight = with(density) { rowHeight.toPx() }
+                        if (state.folderPanel === geometry) {
+                            geometry.grid = Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat()))
+                            geometry.rowHeight = with(density) { rowHeight.toPx() }
+                        }
                     }) {
                     items(order, key = { it?.let { entry -> "entry:${entry.id}" } ?: "folder-insertion" }) { key ->
                         if (key == null) {
@@ -387,7 +384,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                         } else {
                             val app = state.appFor(AppContent(key.app))
                             val index = folder.entries.indexOf(key)
-                            val start = folderMemberStart(anchor, folder.large, folder.apps.size, index,
+                            val start = folderMemberStart(anchor, false, folder.apps.size, index,
                                 with(density) { icon.toPx() }, with(density) { 5.dp.toPx() })
                             var end by remember(key) { mutableStateOf<Rect?>(null) }
                             DisposableEffect(key, start) {
@@ -470,7 +467,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                     preview.forEach { (index, _) ->
                         val key = folder.entries[index]
                         val slot = order.indexOf(key).coerceAtLeast(0)
-                        val start = folderMemberStart(anchor, folder.large, folder.apps.size, index, iconPx,
+                        val start = folderMemberStart(anchor, false, folder.apps.size, index, iconPx,
                             with(density) { 5.dp.toPx() })
                         val end = liveMemberFrames[key.id]?.invoke()
                             ?: folderGridIcon(gridRect, slot, rowPx, iconPx, with(density) { 8.dp.toPx() }, scroll, columns)
@@ -556,9 +553,9 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
     val panel = state.folderTransitionId == landing.folderId
     val memberVisual = if (panel) state.folderMemberFrames[landing.folderId to landing.entryId]?.invoke() else null
     val source = landing.source
-    val returningMember = (source?.source as? DragSource.Member)?.takeIf { state.folderTransitionId == it.folderId }
+    val returningMember = (source.source as? DragSource.Member)?.takeIf { state.folderTransitionId == it.folderId }
     val returnVisual = returningMember?.let { state.folderMemberFrames[it.folderId to it.entryId]?.invoke() }
-    val sourceBounds = when (val from = source?.source) {
+    val sourceBounds = when (val from = source.source) {
         is DragSource.Placed -> state.appIconBounds[from.item.id].takeIf { live -> live != null && layout.items.any { it.id == from.item.id && it.content == from.item.content } }
         is DragSource.Member -> {
             val fromFolder = layout.items.find { it.id == from.folderId }?.content as? FolderContent
@@ -571,7 +568,6 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
             }
         }
         is DragSource.New -> source.origin.let { Rect(it - Offset(icon / 2, icon / 2), Size(icon, icon)) }
-        null -> null
     }
     val end = if (landing.returning) sourceBounds else if (desktopDestination != null) desktopDestination else if (panel) memberVisual?.bounds ?: state.folderGridBounds?.let {
             folderGridIcon(it, index, state.folderRowHeight, icon, with(density) { 8.dp.toPx() }, state.folderGridScroll, state.folderGridColumns)
@@ -579,7 +575,7 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
         else if (folder != null && liveSurface != null) folderMemberStart(surface, folder.large, if (folder.large) 9 else folder.apps.size, index, icon, with(density) { (if (folder.large) LARGE_FOLDER_INSET else 5.dp).toPx() }) else null
     val destination = end ?: surface
     val viewport = if (if (landing.returning) returningMember != null else panel) state.folderContentViewport else null
-    val destinationVisible = if (!landing.returning && desktopDestination != null) true else if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source?.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible
+    val destinationVisible = if (!landing.returning && desktopDestination != null) true else if (!landing.returning && folder == null) false else if (landing.returning) sourceBounds != null && source.source !is DragSource.New && (returningMember == null || viewport?.overlaps(destination) == true) else if (panel) viewport?.overlaps(destination) == true else visible
     val destinationAlpha = if (destinationVisible) (if (landing.returning) returnVisual?.alpha else memberVisual?.alpha) ?: 1f else 0f
     val target by rememberUpdatedState(if (landing.validated && end != null) destination.center else null)
     // A quick release may land before the target morph ends. Keep its presentation
@@ -629,8 +625,7 @@ internal fun FolderLandingOverlay(state: LauncherState, layout: HomeLayout) {
         .graphicsLayer {
             scaleX = frame.width / icon
             scaleY = scaleX
-            val incomingAlpha = landing.initialAlpha + (1f - landing.initialAlpha) * progress
-            alpha = incomingAlpha * (1f + (destinationAlpha - 1f) * ((progress - .65f) / .35f).coerceIn(0f, 1f))
+            alpha = 1f + (destinationAlpha - 1f) * ((progress - .65f) / .35f).coerceIn(0f, 1f)
         }.testTag("folder-landing").drawWithContent {
             if (viewport == null || frame.width <= 0f || frame.height <= 0f) drawContent()
             else {
@@ -678,13 +673,13 @@ internal fun FolderCollapseOverlay(state: LauncherState) {
                 .size(with(density) { surface.width.toDp() }, with(density) { surface.height.toDp() })
                 .graphicsLayer { alpha = 1f - grow }
                 .clip(RoundedCornerShape(with(density) {
-                    val initial = if (collapse.panel || (collapse.item.content as FolderContent).large) 24.dp.toPx() else collapse.surface.width / 2
+                    val initial = if (collapse.panel) 24.dp.toPx() else collapse.surface.width / 2
                     (initial + (surface.width / 2 - initial) * close).toDp()
                 }))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh))
             val oldFolder = collapse.item.content as FolderContent
             val captionSurface = if (collapse.panel) surface else collapse.surface
-            if (!oldFolder.large && oldFolder.name.isNotEmpty()) Text(oldFolder.name,
+            if (oldFolder.name.isNotEmpty()) Text(oldFolder.name,
                 color = if (collapse.panel) MaterialTheme.colorScheme.onSurface else LocalOnWallpaper.current.text,
                 style = if (collapse.panel) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
                 textAlign = TextAlign.Center, maxLines = 1,
@@ -709,7 +704,7 @@ internal fun FolderDropOutline(state: LauncherState) {
         state.folderBounds[target.folderId] ?: return
     } else {
         val surface = state.folderSurfaceBounds[target.folderId] ?: return
-        largeFolderFeedbackFrame(largeFolderCell(surface, target.slot, state.folderInsetPx))
+        largeFolderCell(surface, target.slot, state.folderInsetPx)
     }
     val viewport = state.viewportCoords?.takeIf { it.isAttached }?.boundsInRoot() ?: return
     val dockTop = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.top ?: Float.POSITIVE_INFINITY
