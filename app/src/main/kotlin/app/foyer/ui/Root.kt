@@ -129,10 +129,10 @@ fun FoyerRoot(state: LauncherState) {
                 SystemBarsAppearance(state)
 
                 BackHandler(enabled = state.drag != null) { state.cancelDrag() }
-                FolderOverlay(state, layout)
                 // These overlays use physical root coordinates, regardless of locale.
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Box(Modifier.fillMaxSize()) {
+                        FolderOverlay(state, layout)
                         MergePreviewOverlay(state, layout)
                         FolderDropOutline(state)
                         DragGhost(state, iconSize = state.iconSize)

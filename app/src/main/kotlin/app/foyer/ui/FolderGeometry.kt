@@ -5,7 +5,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import app.foyer.data.FolderContent
-import app.foyer.data.AppKey
 
 internal val LARGE_FOLDER_INSET = 12.dp
 internal const val LARGE_FOLDER_ICON_SCALE = .70f
@@ -63,16 +62,6 @@ internal fun folderInsertionIndex(point: Offset, grid: Rect, rowHeight: Float, c
 
 internal fun folderInsertionForMember(slot: Int, sourceIndex: Int): Int =
     slot + if (sourceIndex >= 0 && slot > sourceIndex) 1 else 0
-
-/** Preserve the dragged member's composition (and pointer ownership) as the invisible gap. */
-internal fun <T> folderDragOrder(apps: List<T>, member: T?, index: Int, large: Boolean = false): List<T?> {
-    val old = apps.indexOf(member)
-    val insertion = (if (old < 0 && !large && apps.size == 4 && index >= 4) 2 else index).coerceIn(0, apps.size)
-    return apps.toMutableList<T?>().apply {
-        if (old >= 0) removeAt(old)
-        add((insertion - if (old in 0 until insertion) 1 else 0).coerceIn(0, size), member)
-    }
-}
 
 /** The closed preview uses the very same coordinates as FolderTile, not the whole feed cell. */
 internal fun folderMemberStart(surface: Rect, large: Boolean, count: Int, index: Int, icon: Float, inset: Float): Rect {

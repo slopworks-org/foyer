@@ -48,8 +48,9 @@ singleton. New drag ownership or authoritative replacement removes the snapshot,
 identity-checked effect cleanup cannot delete a newer collapse.
 
 Folder app drops mark the resulting cell with the desktop landing treatment: 4dp
-inset, 14% fill, 45% outline and a 1.5dp stroke. Desktop, open folders and
-large folders resolve the same wallpaper text color from the shared theme provider.
+inset, 14% fill, 45% outline and a 1.5dp stroke. Desktop feedback uses the
+wallpaper text color; open and large folders use the theme's onSurface color
+against their opaque surfaces.
 The shared primitive draws each fill and outline once; large folders split these
 between their cell and foreground layers. Large feedback is exactly the selected
 3×3 cell, with regular 4dp internal gutters. Selection changes immediately so a

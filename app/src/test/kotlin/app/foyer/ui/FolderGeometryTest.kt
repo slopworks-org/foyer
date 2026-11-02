@@ -45,8 +45,6 @@ class FolderGeometryTest {
         assertEquals(6, (Edits.transferApp(five, keys[4], targetFolder = 1).items.first().content as FolderContent).entries.size)
         val four = Edits.transferApp(five, keys[4], sourceFolder = 1, x = 4, y = 4)
         assertEquals(keys.take(4), (four.items.first().content as FolderContent).apps)
-        assertEquals(listOf(keys[0], keys[1], null, keys[2], keys[3]), folderDragOrder(keys.take(4), null, Int.MAX_VALUE))
-        assertEquals(keys.take(4) + null, folderDragOrder(keys.take(4), null, Int.MAX_VALUE, large = true))
         val grid = Rect(0f, 0f, 300f, 200f)
         assertEquals(3, folderInsertionIndex(Offset(250f, 150f), grid, 100f, 4))
         assertEquals(Offset(225f, 108f), folderGridIcon(grid, 3, 100f, 40f, 8f, 0f, 2).topLeft + Offset(20f, 0f))
@@ -185,18 +183,6 @@ class FolderGeometryTest {
         assertEquals(70f, large[4].width)
         assertTrue(large[0].center.x < large[1].center.x && large[1].center.x < large[2].center.x)
         assertTrue(large[0].center.y < large[3].center.y && large[3].center.y < large[6].center.y)
-    }
-
-    @Test fun hoverGapAndCommittedOrderAgreeForEveryMemberAndInsertionSlot() {
-        val apps = (1..9).map { AppKey("pkg$it", "Main", 0) }
-        val initial = Edits.add(HomeLayout(), FolderContent(apps), 0, 0)
-        for (member in apps) for (index in 0..apps.size) {
-            val preview = folderDragOrder(apps, member, index)
-            val committed = Edits.transferApp(initial, member, sourceFolder = 1, targetFolder = 1, index = index)
-            assertEquals((committed.items.first().content as FolderContent).apps, preview)
-            assertEquals(apps.toSet(), preview.toSet())
-        }
-        assertEquals(listOf(apps[0], null, apps[1]), folderDragOrder(apps.take(2), null, 1))
     }
 
     @Test fun stationarySlotsIncludePaddingAndTitleWithoutFollowingAnimatedMembers() {

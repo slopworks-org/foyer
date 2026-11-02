@@ -131,15 +131,9 @@ class Graph(private val context: Context) {
 
     private fun forgetPackage(pkg: String, user: Long) {
         layout.edit { l ->
-            val gone = l.items.filter { item ->
-                when (val c = item.content) {
-                    is FolderContent -> false
-                    is AppContent -> c.app.pkg == pkg && c.app.user == user
-                    is ShortcutContent -> c.pkg == pkg && c.user == user
-                    is WidgetContent -> c.provider.startsWith("$pkg/")
-                }
-            }
-            gone.forEach { (it.content as? WidgetContent)?.let { w -> widgetHost.deleteAppWidgetId(w.widgetId) } }
+            l.items.mapNotNull { it.content as? WidgetContent }
+                .filter { it.provider.startsWith("$pkg/") }
+                .forEach { widgetHost.deleteAppWidgetId(it.widgetId) }
             Edits.forgetPackage(l, pkg, user)
         }
     }

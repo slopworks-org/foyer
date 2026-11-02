@@ -108,13 +108,17 @@ internal fun folderTransferActions(state: LauncherState, key: AppKey, sourceItem
             state.accessibleMerge(target, key, sourceItem, sourceFolder, sourceEntry); true
         }
     }
-    layout.feed.forEach { item ->
-        val folder = item.content as? FolderContent ?: return@forEach
-        if (item.id != sourceFolder && (!folder.large || folder.entries.size < 9)) {
-            val name = folder.name.ifEmpty { resources.getString(R.string.folder_default) }
-            actions += CustomAccessibilityAction(resources.getString(R.string.folder_move_to, name)) {
-                state.accessibleTransfer(key, sourceItem, sourceFolder, item.id, sourceEntry = sourceEntry); true
-            }
+    val folders = layout.feed.filter { item ->
+        val folder = item.content as? FolderContent
+        folder != null && item.id != sourceFolder && (!folder.large || folder.entries.size < 9)
+    }
+    val folderLabels = folders.associate { it.id to (it.content as FolderContent).name.ifEmpty { resources.getString(R.string.folder_default) } }
+    folders.forEach { item ->
+        val name = folderLabels.getValue(item.id)
+        val qualified = if (folderLabels.values.count { it == name } > 1)
+            resources.getString(R.string.folder_position_label, name, item.y + 1, item.x + 1) else name
+        actions += CustomAccessibilityAction(resources.getString(R.string.folder_move_to, qualified)) {
+            state.accessibleTransfer(key, sourceItem, sourceFolder, item.id, sourceEntry = sourceEntry); true
         }
     }
     return actions
@@ -174,7 +178,8 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
     )
     Column(modifier.onGloballyPositioned {
         coordinates = it
-        if (interactive) state.folderBounds[item.id] = it.boundsInRoot()
+        // Keep the full physical cell for feedback; the overlay clips it to the viewport.
+        if (interactive) state.folderBounds[item.id] = Rect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat()))
     }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         val panel = if (folder.large) Modifier.fillMaxSize().padding(6.dp) else Modifier.size(iconSize)
         val target = state.drag?.let { state.folderDropPreview(it) }
@@ -216,7 +221,7 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
                                 with(density) { (maxWidth / 3 * (slot % 3)).roundToPx() },
                                 with(density) { (rowHeight * (slot / 3)).roundToPx() }) }
                                 .size(maxWidth / 3, rowHeight).testTag("folder-drop-${item.id}-$slot")
-                                .landingFrame(iconSize / 4, outline = false))
+                                .landingFrame(iconSize / 4, outline = false, color = MaterialTheme.colorScheme.onSurface))
                         }
                     }
                 } else {
@@ -344,7 +349,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
             state.folderGridScroll = scroll
             state.folderContentViewport = folderContentClip(current, gridRect, p)
         }
-        LaunchedEffect(id, drag != null) {
+        LaunchedEffect(id, drag) {
             val zone = with(density) { 56.dp.toPx() }
             val speed = with(density) { 840.dp.toPx() }
             var previous = withFrameNanos { it }
@@ -378,7 +383,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                         if (key == null) {
                             Box(Modifier.animateItem().height(rowHeight).fillMaxWidth()
                                 .then(if (drag?.released == false) Modifier.testTag("folder-drop-$id-${target?.slot}")
-                                    .landingFrame(icon / 2) else Modifier))
+                                    .landingFrame(icon / 2, color = MaterialTheme.colorScheme.onSurface) else Modifier))
                         } else {
                             val app = state.appFor(AppContent(key.app))
                             val index = folder.entries.indexOf(key)
@@ -404,7 +409,7 @@ fun FolderOverlay(state: LauncherState, layout: HomeLayout) {
                             Column(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
                                 .height(rowHeight)
                                 .then(if (drag?.released == false && target?.folderId == id && target.entryId == key.id)
-                                    Modifier.testTag("folder-drop-$id-${target.slot}").landingFrame(icon / 2) else Modifier)
+                                    Modifier.testTag("folder-drop-$id-${target.slot}").landingFrame(icon / 2, color = MaterialTheme.colorScheme.onSurface) else Modifier)
                                 .then(memberModifier(state, id, key, overlay = true, iconCenter = end?.center)),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(Modifier.padding(top = 8.dp).size(icon).onGloballyPositioned {
@@ -701,9 +706,7 @@ internal fun FolderDropOutline(state: LauncherState) {
     val target = state.folderDropPreview(session)?.takeIf { it.folder.large || it.standalone != null } ?: return
     val standalone = target.standalone
     val bounds = if (standalone != null) {
-        val grid = state.gridCoords?.takeIf { it.isAttached } ?: return
-        Rect(grid.localToRoot(Offset(standalone.x * state.cellW, standalone.y * state.cellH)),
-            Size(state.cellW, state.cellH))
+        state.folderBounds[target.folderId] ?: return
     } else {
         val surface = state.folderSurfaceBounds[target.folderId] ?: return
         largeFolderFeedbackFrame(largeFolderCell(surface, target.slot, state.folderInsetPx))
@@ -724,6 +727,7 @@ internal fun FolderDropOutline(state: LauncherState) {
             .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
             .testTag("folder-drop-outline-${target.folderId}")
             .landingFrame(if (standalone != null) state.iconSize / 2 else state.iconSize / 4,
-                fill = standalone != null))
+                fill = standalone != null,
+                color = if (standalone != null) LocalOnWallpaper.current.text else MaterialTheme.colorScheme.onSurface))
     }
 }

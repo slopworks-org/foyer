@@ -287,7 +287,7 @@ private fun Feed(
     val rows = max(layout.rows + if (drag != null) 2 else 0, visibleRows)
 
     // Auto-scroll while dragging near the top or bottom of the feed.
-    LaunchedEffect(drag != null) {
+    LaunchedEffect(drag) {
         if (drag == null) return@LaunchedEffect
         val zone = with(density) { 72.dp.toPx() }
         val maxSpeed = with(density) { 14.dp.toPx() }
@@ -905,9 +905,8 @@ fun DragGhost(state: LauncherState, iconSize: Dp) {
 @Composable
 internal fun Modifier.landingFrame(
     radius: Dp, fill: Boolean = true, outline: Boolean = true, inset: Dp = 4.dp,
-    capRadius: Boolean = true,
+    capRadius: Boolean = true, color: Color = LocalOnWallpaper.current.text,
 ): Modifier {
-    val color = LocalOnWallpaper.current.text
     return this.drawBehind {
         val inset = inset.toPx()
         val frameSize = Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset * 2).coerceAtLeast(0f))

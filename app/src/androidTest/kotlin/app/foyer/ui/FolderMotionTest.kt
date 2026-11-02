@@ -47,9 +47,6 @@ class FolderMotionTest {
         automation.executeShellCommand("mkdir -p /sdcard/Download/foyer-three-fixes").use {
             android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
         }
-        automation.adoptShellPermissionIdentity("android.permission.SET_WALLPAPER")
-        try { android.app.WallpaperManager.getInstance(rule.activity).clear() }
-        finally { automation.dropShellPermissionIdentity() }
         rule.waitUntil(10_000) { graph.apps.apps.value.size >= 15 }
         apps = graph.apps.apps.value.map { it.key }
         rule.activity.setContent {
@@ -445,7 +442,7 @@ class FolderMotionTest {
                 rule.waitUntil(5_000) {
                     rule.mainClock.advanceTimeBy(16)
                     state.graph.layout.layout.value.items.first().content.let { content ->
-                        if (count == 0) content == AppContent(apps[0]) else (content as? FolderContent)?.apps?.size == count + 1
+                        if (count == 0 && !large) content == AppContent(apps[0]) else (content as? FolderContent)?.apps?.size == count + 1
                     }
                 }
                 rule.runOnUiThread {
@@ -463,7 +460,7 @@ class FolderMotionTest {
                 rule.waitForIdle()
                 rule.runOnIdle {
                     assertNull(state.folderLanding)
-                    if (count == 0) assertEquals(AppContent(apps[0]), state.graph.layout.layout.value.items.first().content)
+                    if (count == 0 && !large) assertEquals(AppContent(apps[0]), state.graph.layout.layout.value.items.first().content)
                     else assertEquals(if (!large && count == 4) listOf(apps[0], apps[1], apps[4], apps[2], apps[3]) else apps.take(count + 1), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
                 }
             }

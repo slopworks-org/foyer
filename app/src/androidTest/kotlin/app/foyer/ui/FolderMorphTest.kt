@@ -22,6 +22,111 @@ import org.junit.Test
 class FolderMorphTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
+    @Test fun ordinaryDropsKeepTheGhostStationaryUntilTheDesktopSpringTakesOver() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        lateinit var state: LauncherState
+        var validation = kotlinx.coroutines.CompletableDeferred<Set<app.foyer.data.AppKey>>()
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val app = graph.apps.apps.value.first()
+        try {
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                state = remember { LauncherState(graph, scope, rule.activity) { validation.await() } }
+                FoyerRoot(state)
+            }
+            rule.waitForIdle()
+            for (toDock in listOf(false, true)) {
+                rule.runOnUiThread {
+                    validation = kotlinx.coroutines.CompletableDeferred()
+                    graph.layout.edit { Edits.add(HomeLayout(seeded = true), AppContent(app.key), 0, 2) }
+                }
+                rule.waitForIdle()
+                var release = Offset.Zero
+                rule.mainClock.autoAdvance = false
+                rule.runOnUiThread {
+                    val item = graph.layout.layout.value.items.single()
+                    release = if (toDock) state.dockCoords!!.localToRoot(
+                        Offset(state.dockCoords!!.size.width / 2f, state.dockCoords!!.size.height / 2f))
+                    else state.gridCoords!!.localToRoot(Offset(state.cellW * 3.5f, state.cellH * 2.5f))
+                    state.startDrag(DragSession(DragSource.Placed(item), app.icon, Offset.Zero, state.appIconBounds.getValue(item.id).center))
+                    state.moveDrag(release)
+                    state.endDrag(Offset(1000f, 0f))
+                }
+                rule.mainClock.advanceTimeBy(160)
+                assertNull(state.folderLanding)
+                val ghost = rule.onNodeWithTag("drag-ghost", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                assertEquals(release.x, ghost.center.x, 1.1f)
+                assertEquals(release.y, ghost.center.y, 1.1f)
+                rule.runOnUiThread { validation.complete(emptySet()) }
+                rule.waitUntil(5000) { rule.mainClock.advanceTimeBy(16); state.drag == null }
+                rule.mainClock.autoAdvance = true
+                rule.waitForIdle()
+                val placed = graph.layout.layout.value.items.single()
+                assertEquals(toDock, placed.dock)
+                assertEquals(if (toDock) 2 else 3, placed.x)
+                assertEquals(if (toDock) 0 else 2, placed.y)
+                assertNull(state.folderLanding)
+            }
+        } finally {
+            validation.complete(emptySet())
+            rule.mainClock.autoAdvance = true
+            rule.runOnUiThread { state.cancelDrag(); graph.layout.edit { saved } }
+        }
+    }
+
+    @Test fun replacementDragRestartsFeedAndPanelAutoScroll() {
+        val graph = rule.activity.graph
+        val saved = graph.layout.layout.value
+        lateinit var state: LauncherState
+        rule.waitUntil(10000) { graph.apps.apps.value.isNotEmpty() }
+        val app = graph.apps.apps.value.first().key
+        try {
+            rule.runOnUiThread {
+                graph.layout.edit { Edits.add(Edits.add(HomeLayout(seeded = true),
+                    FolderContent(List(60) { app }), 2, 3), AppContent(app), 0, 30) }
+            }
+            rule.activity.setContent {
+                val scope = rememberCoroutineScope()
+                state = remember { LauncherState(graph, scope, rule.activity) { kotlinx.coroutines.awaitCancellation() } }
+                FoyerRoot(state)
+            }
+            rule.waitForIdle()
+            for (panel in listOf(false, true)) {
+                rule.runOnIdle {
+                    state.feedScroll.dispatchRawDelta(-state.feedScroll.value.toFloat())
+                    state.openFolder = if (panel) 1 else null
+                }
+                rule.waitForIdle()
+                val edge = rule.runOnIdle {
+                    if (panel) state.folderGridBounds!!.let { Offset(it.center.x, it.bottom - 4f) }
+                    else Offset(state.rootCoords!!.size.width / 2f, state.dockRowBottomPx - state.dockContentPx - 4f)
+                }
+                rule.mainClock.autoAdvance = false
+                rule.runOnUiThread { state.startDrag(DragSession(DragSource.New(AppContent(app)), null, Offset.Zero, edge)) }
+                rule.mainClock.advanceTimeBy(64)
+                rule.runOnUiThread { state.endDrag() }
+                rule.mainClock.advanceTimeBy(64)
+                val stopped = rule.runOnIdle {
+                    assertTrue(state.drag!!.released)
+                    if (panel) state.folderGridScroll else state.feedScroll.value.toFloat()
+                }
+                rule.runOnUiThread { state.startDrag(DragSession(DragSource.New(AppContent(app)), null, Offset.Zero, edge)) }
+                rule.mainClock.advanceTimeBy(160)
+                rule.runOnIdle {
+                    val resumed = if (panel) state.folderGridScroll else state.feedScroll.value.toFloat()
+                    assertTrue("replacement drag must resume ${if (panel) "panel" else "feed"} scrolling", resumed > stopped)
+                    state.cancelDrag()
+                }
+                rule.mainClock.autoAdvance = true
+                rule.waitForIdle()
+            }
+        } finally {
+            rule.runOnUiThread { state.cancelDrag(); graph.layout.edit { saved } }
+            rule.mainClock.autoAdvance = true
+        }
+    }
+
     @Test fun missingCollapseDestinationReleasesVisualOwnership() {
         val graph = rule.activity.graph
         var state: LauncherState? = null

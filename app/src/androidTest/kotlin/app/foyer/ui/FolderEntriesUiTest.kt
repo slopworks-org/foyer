@@ -25,7 +25,7 @@ import java.io.File
 class FolderEntriesUiTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun rtlClosedPreviewUsesPhysicalMiniaturePositions() {
+    @Test fun rtlFolderUsesPhysicalPreviewPanelAndDropCoordinates() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
         lateinit var state: LauncherState
@@ -33,7 +33,7 @@ class FolderEntriesUiTest {
         val app = graph.apps.apps.value.first().key
         try {
             rule.runOnUiThread {
-                graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(app, app)), 2, 3) }
+                graph.layout.edit { Edits.add(HomeLayout(seeded = true), FolderContent(listOf(app, app)), 0, 3) }
             }
             rule.activity.setContent {
                 val scope = rememberCoroutineScope()
@@ -50,7 +50,43 @@ class FolderEntriesUiTest {
                 assertEquals(expected.center.y, actual.center.y, 1.1f)
                 assertTrue(surface.contains(actual.center))
             }
-        } finally { rule.runOnUiThread { graph.layout.edit { saved } } }
+            rule.runOnIdle { state.openFolder = 1 }
+            rule.waitForIdle()
+            val entries = (graph.layout.layout.value.items.single().content as FolderContent).entries
+            rule.runOnIdle {
+                assertTrue(state.folderPanelBounds!!.contains(surface.center))
+                assertEquals(state.folderHitGridBounds!!.left, state.folderGridBounds!!.left, 1.1f)
+                assertEquals(state.folderHitGridBounds!!.right, state.folderGridBounds!!.right, 1.1f)
+                val first = state.panelMemberBounds.getValue(1L to entries[0].id).center
+                val second = state.panelMemberBounds.getValue(1L to entries[1].id).center
+                assertTrue(first.x < second.x)
+                val session = DragSession(DragSource.New(AppContent(app)), null, Offset.Zero, second)
+                assertEquals(DropTarget.Folder(1, 1), state.targetFor(session))
+                state.startDrag(session)
+                state.endDrag()
+            }
+            rule.waitUntil(5000) { state.drag == null && state.folderLanding == null }
+            val committed = (graph.layout.layout.value.items.single().content as FolderContent).entries
+            assertEquals(3, committed.size)
+            assertEquals(entries[0], committed[0])
+            assertEquals(entries[1], committed[2])
+            rule.runOnIdle {
+                state.openFolder = null
+                graph.layout.edit { Edits.folder(it, 1, FolderContent()) }
+            }
+            rule.waitForIdle()
+            val cell = rule.runOnIdle { state.folderBounds.getValue(1) }
+            rule.mainClock.autoAdvance = false
+            rule.runOnUiThread { state.startDrag(DragSession(DragSource.New(AppContent(app)), null, Offset.Zero, cell.center)) }
+            rule.mainClock.advanceTimeBy(64)
+            val outline = rule.onNodeWithTag("folder-drop-outline-1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertEquals(cell.center.x, outline.center.x, 1.1f)
+            assertEquals(cell.center.y, outline.center.y, 1.1f)
+            assertEquals(cell.width, outline.width, 1.1f)
+        } finally {
+            rule.runOnUiThread { state.cancelDrag(); graph.layout.edit { saved } }
+            rule.mainClock.autoAdvance = true
+        }
     }
 
     @Test fun repeatedAppsHaveDistinctAccessiblePositions() {
@@ -61,6 +97,7 @@ class FolderEntriesUiTest {
         try {
             graph.layout.edit {
                 var layout = Edits.add(HomeLayout(seeded = true), FolderContent(entries = listOf(FolderEntry(app.key), FolderEntry(app.key)), large = true), 0, 1)
+                layout = Edits.add(layout, FolderContent(), 2, 1)
                 layout = Edits.add(layout, AppContent(app.key), 3, 1)
                 Edits.add(layout, AppContent(app.key), 4, 1)
             }
@@ -78,6 +115,15 @@ class FolderEntriesUiTest {
                 val target = rule.activity.getString(R.string.folder_position_label, app.label, 2, column)
                 assertTrue(labels.contains(rule.activity.getString(R.string.folder_combine_with, target)))
             }
+            val folderName = rule.activity.getString(R.string.folder_default)
+            val destinationLabels = rule.onAllNodes(hasContentDescription(app.label) and
+                SemanticsMatcher.keyIsDefined(SemanticsActions.CustomActions), useUnmergedTree = true)
+                .fetchSemanticsNodes().first().config[SemanticsActions.CustomActions].map { it.label }
+            for (column in listOf(1, 3)) {
+                val target = rule.activity.getString(R.string.folder_position_label, folderName, 2, column)
+                assertTrue(destinationLabels.contains(rule.activity.getString(R.string.folder_move_to, target)))
+            }
+            assertFalse(destinationLabels.contains(rule.activity.getString(R.string.folder_move_to, folderName)))
         } finally { rule.runOnUiThread { graph.layout.edit { saved } } }
     }
 
@@ -182,7 +228,18 @@ class FolderEntriesUiTest {
             assertEquals(listOf(b.id, a.id), folder().entries.map { it.id })
             shot("10-small-duplicate-reordered")
             // Actual long press and visible Remove action consume only the selected occurrence.
+            val desktopMenu = rule.runOnIdle {
+                state.showItemMenu(HomeItem(99, AppContent(app), 0, 0), state.panelMemberBounds.getValue(1L to b.id))
+                state.menu!!.also { state.menu = null }
+            }
             rule.onRoot().performTouchInput { longClick(state.panelMemberBounds.getValue(1L to b.id).center) }
+            rule.runOnIdle {
+                assertEquals(desktopMenu.actions.map { it.label }, state.menu!!.actions.map { it.label })
+                assertEquals(desktopMenu.shortcuts, state.menu!!.shortcuts)
+                state.menu!!.actions.first { it.label == R.string.action_aliases }.onClick()
+                assertEquals(app, state.aliasEditor!!.key)
+                state.aliasEditor = null
+            }
             rule.onNodeWithText(rule.activity.getString(R.string.action_remove)).performClick()
             rule.waitForIdle()
             assertEquals(AppContent(app), graph.layout.layout.value.items.first().content)

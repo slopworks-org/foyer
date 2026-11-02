@@ -470,14 +470,18 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     fun showMemberMenu(folderId: Long, entry: app.foyer.data.FolderEntry, anchor: androidx.compose.ui.geometry.Rect) {
         menuOwner = folderId
         val app = appFor(AppContent(entry.app))
-        menu = MenuSpec(anchor, actions = buildList {
-            if (app != null) add(infoAction(app))
+        menu = MenuSpec(anchor, shortcuts = app?.let(graph.apps::shortcutsOf).orEmpty(), actions = buildList {
+            if (app != null) {
+                add(infoAction(app))
+                add(aliasAction(app))
+            }
             add(MenuAction(R.string.action_remove, MenuIcons.Close) {
                 graph.layout.edit { current ->
                     val folder = current.items.find { it.id == folderId }?.content as? FolderContent
                     if (folder == null) current else Edits.folder(current, folderId, folder.withoutEntry(entry.id))
                 }
             })
+            if (app != null) uninstallAction(app)?.let(::add)
             val item = layout.items.find { it.id == folderId }
             if ((item?.content as? FolderContent)?.let { it.large && it.entries.size >= 2 } == true) {
                 add(MenuAction(R.string.folder_shrink, MenuIcons.Edit) {
@@ -662,7 +666,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val key = (s.content as? AppContent)?.app
         val folderId = (target as? DropTarget.Folder)?.id ?: (target as? DropTarget.Merge)?.target?.id ?: -1
         val destinationSnapshot = layout.items.find { it.id == folderId }
-        val flight = key?.let { FolderLanding(folderId, it, s.icon, s.anchor, s.visualScale, velocity, initialAlpha = s.visualAlpha).also {
+        val flight = key?.takeIf { folderId >= 0 }?.let { FolderLanding(folderId, it, s.icon, s.anchor, s.visualScale, velocity, initialAlpha = s.visualAlpha).also {
             it.source = s
             folderLanding = it
         } }
@@ -708,6 +712,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 preview?.let { it.released = false }
                 resetMerge()
                 if (flight != null) { flight.returning = true; flight.validated = true }
+                else if (key != null) cancelDrag()
                 else { s.placedId?.let { dropOrigins[it] = s.anchor }; drag = null }
             }
             if (applied != null) mergeReadiness.consume() else mergeReadiness.update(null)
@@ -847,13 +852,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 (t as? DropTarget.Folder)?.id, (t as? DropTarget.Folder)?.index ?: Int.MAX_VALUE,
                 (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: 0,
                 (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock, sourceEntry = member?.entryId)
-            val unchangedMember = member != null && t is DropTarget.Folder && member.folderId == t.id &&
-                (l.items.find { it.id == t.id }?.content as? FolderContent)?.let { folder ->
-                    folder.entries.any { it.id == member.entryId } && if (folder.large)
-                        t.index == Int.MAX_VALUE || folder.slotEntries.getOrNull(t.index)?.id == member.entryId
-                    else folderDragOrder(folder.entries, folder.entries.find { it.id == member.entryId }, t.index) == folder.entries
-                } == true
-            return if (result === l && !unchangedMember) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
+            return if (result === l) null else result to ((t as? DropTarget.Folder)?.id ?: placed?.id ?: l.nextId)
         }
         return when (t) {
             is DropTarget.Folder, is DropTarget.Merge -> null
