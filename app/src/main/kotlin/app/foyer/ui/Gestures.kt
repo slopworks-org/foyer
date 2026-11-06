@@ -29,7 +29,7 @@ class ItemGestureCallbacks(
     /** [pointer] = where the finger went down, [bounds] = the item, both in root px. */
     val onDragStart: (pointer: Offset, bounds: Rect) -> Unit,
     val onDrag: (pointer: Offset) -> Unit,
-    val onDragEnd: () -> Unit,
+    val onDragEnd: (Offset) -> Unit,
     val onDragCancel: () -> Unit,
 )
 
@@ -78,22 +78,35 @@ fun Modifier.itemGestures(
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         cb.onLongPress(lc.boundsInRoot())
                         var dragging = false
+                        var released = false
+                        val tracker = ReleaseVelocity()
                         try {
                             while (true) {
                                 val ev = awaitPointerEvent()
                                 val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                // Compose sends cancellation as an already-consumed synthetic up.
+                                val wasConsumed = c.isConsumed
                                 c.consume()
-                                if (!c.pressed) break
                                 val now = coords ?: lc
+                                val position = now.localToRoot(c.position)
+                                for (sample in c.historical) tracker.add(sample.uptimeMillis, now.localToRoot(sample.position))
+                                tracker.add(c.uptimeMillis, position)
+                                if (!c.pressed) {
+                                    if (dragging) cb.onDrag(position)
+                                    released = c.changedToUpIgnoreConsumed() && !wasConsumed
+                                    break
+                                }
                                 if (!dragging && (c.position - down.position).getDistance() > slop) {
                                     dragging = true
                                     cb.onDragStart(now.localToRoot(down.position), now.boundsInRoot())
                                 }
-                                if (dragging) cb.onDrag(now.localToRoot(c.position))
+                                if (dragging) cb.onDrag(position)
                             }
                             if (dragging) {
                                 dragging = false
-                                cb.onDragEnd()
+                                if (released) {
+                                    cb.onDragEnd(tracker.velocity())
+                                } else cb.onDragCancel()
                             }
                         } finally {
                             if (dragging) cb.onDragCancel()

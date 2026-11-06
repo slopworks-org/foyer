@@ -41,6 +41,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -52,7 +53,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -62,6 +68,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -77,8 +85,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -88,6 +96,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.res.stringResource
 import app.foyer.R
+import app.foyer.data.FolderContent
 import app.foyer.data.AppContent
 import app.foyer.data.Content
 import app.foyer.data.HomeItem
@@ -278,24 +287,41 @@ private fun Feed(
     val rows = max(layout.rows + if (drag != null) 2 else 0, visibleRows)
 
     // Auto-scroll while dragging near the top or bottom of the feed.
-    LaunchedEffect(drag != null) {
+    LaunchedEffect(drag) {
         if (drag == null) return@LaunchedEffect
         val zone = with(density) { 72.dp.toPx() }
         val maxSpeed = with(density) { 14.dp.toPx() }
-        while (true) {
-            withFrameNanos { }
-            val s = state.drag ?: break
-            val vp = state.viewportCoords?.takeIf { it.isAttached } ?: continue
-            val root = state.rootCoords ?: continue
-            val y = vp.localPositionOf(root, s.pointer).y
-            val top = with(density) { topPad.toPx() }
-            val bottom = vp.size.height - with(density) { bottomPad.toPx() } + zone * 0.5f
-            val delta = when {
-                y < top + zone -> -maxSpeed * ((top + zone - y) / zone).coerceIn(0f, 1f)
-                y > bottom - zone && y < bottom + zone * 0.5f -> maxSpeed * ((y - (bottom - zone)) / zone).coerceIn(0f, 1f)
-                else -> 0f
+        try {
+            while (true) {
+                withFrameNanos { }
+                val s = state.drag?.takeUnless { it.released } ?: break
+                val vp = state.viewportCoords?.takeIf { it.isAttached }
+                val root = state.rootCoords
+                val delta = if (state.folderOwnsDrag(s) || vp == null || root == null) 0f else {
+                    val y = vp.localPositionOf(root, s.pointer).y
+                    val top = with(density) { topPad.toPx() }
+                    val bottom = vp.size.height - with(density) { bottomPad.toPx() } + zone * 0.5f
+                    when {
+                        y < top + zone -> -maxSpeed * ((top + zone - y) / zone).coerceIn(0f, 1f)
+                        y > bottom - zone && y < bottom + zone * 0.5f -> maxSpeed * ((y - (bottom - zone)) / zone).coerceIn(0f, 1f)
+                        else -> 0f
+                    }
+                }
+                // Keep eligibility suppressed between frame and pointer refreshes, not just
+                // the single refresh which observes a changed scroll offset.
+                state.feedAutoScrolling = when {
+                    delta < 0f -> state.feedScroll.canScrollBackward
+                    delta > 0f -> state.feedScroll.canScrollForward
+                    else -> false
+                }
+                state.refreshDragTargets()
+                if (state.feedAutoScrolling) {
+                    state.feedScroll.scrollBy(delta)
+                    state.refreshDragTargets()
+                }
             }
-            if (delta != 0f) state.feedScroll.scrollBy(delta)
+        } finally {
+            state.feedAutoScrolling = false
         }
     }
 
@@ -386,15 +412,11 @@ private fun DropIndicator(state: LauncherState, cellW: Dp, cellH: Dp, iconSize: 
     val s = state.drag ?: return
     val t = state.targetFor(s) as? DropTarget.Feed ?: return
     if (state.plan(s, t) == null) return
-    val color = LocalOnWallpaper.current.text
     Box(
         Modifier
             .offset(cellW * t.x, cellH * t.y)
             .size(cellW * s.w, cellH * s.h)
-            .padding(4.dp)
-            .clip(RoundedCornerShape(if (s.isWidget) 24.dp else iconSize / 2))
-            .background(color.copy(alpha = 0.14f))
-            .border(1.5.dp, color.copy(alpha = 0.45f), RoundedCornerShape(if (s.isWidget) 24.dp else iconSize / 2)),
+            .landingFrame(if (s.isWidget) 24.dp else iconSize / 2, capRadius = false),
     )
 }
 
@@ -437,12 +459,13 @@ fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Mod
             } else {
                 translationX = springBack.value.x
                 translationY = springBack.value.y
-                alpha = if (dragged) 0f else 1f
+                alpha = if (dragged || state.folderCollapses.containsKey(item.id) || state.folderLanding?.let { it.folderId == item.id && it.validated && !it.returning && content is AppContent && content.app == it.key } == true) 0f else 1f
             }
         }
 
     when (content) {
         is AppContent, is ShortcutContent -> IconTile(state, item, iconSize, baseModifier)
+        is FolderContent -> FolderTile(state, item, content, iconSize, baseModifier)
         is WidgetContent -> WidgetTile(state, item, content, baseModifier)
     }
 }
@@ -470,17 +493,33 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
             onDragCancel = state::cancelDrag,
         )
     }
-    Box(modifier.itemGestures(callbacks) { pressed = it }, contentAlignment = Alignment.Center) {
-        Box(Modifier.scale(scale)) {
-            if (content is ShortcutContent) ShortcutIcon(state, shortcut, app, iconSize)
-            else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer { alpha = if (app == null) 0.35f else 1f })
+    DisposableEffect(item.id) { onDispose { state.appIconBounds.remove(item.id); state.appIconMeasurements.remove(item.id) } }
+    val ready = state.mergeReady == item.id
+    val previewing = state.mergePreviews.any { it.target.id == item.id }
+    val readiness = if (ready) stringResource(R.string.folder_merge_ready) else ""
+    val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
+    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty(); stateDescription = readiness }, contentAlignment = Alignment.Center) {
+        Box(Modifier.onGloballyPositioned {
+            if (content is AppContent) {
+                state.appIconBounds[item.id] = it.boundsInRoot()
+                state.appIconMeasurements[item.id] = item to state.feedScroll.value
+            }
+        }) {
+            if (content is ShortcutContent) Box(Modifier.scale(scale)) { ShortcutIcon(state, shortcut, app, iconSize) }
+            else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer {
+                alpha = if (previewing) 0f else if (app == null) 0.35f else 1f
+                scaleX = scale
+                scaleY = scaleX
+            })
         }
+
     }
 }
 
 fun iconOf(state: LauncherState, content: Content) = when (content) {
     is AppContent -> state.appFor(content)?.icon
     is ShortcutContent -> state.appFor(content)?.icon
+    is FolderContent -> null
     is WidgetContent -> null
 }
 
@@ -699,13 +738,19 @@ private fun Dock(
     modifier: Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val lift = keyboardLift()
+    val keyboard = keyboardLift()
+    val lift: androidx.compose.ui.unit.Density.() -> Float = {
+        dockKeyboardLift(keyboard(), state.searchActive, state.searchProgress.value, state.searchProgress.targetValue,
+            state.openFolder != null || state.folderTransitionId != null)
+    }
     Column(
         modifier
             // The whole dock rides on the line between its icons and search content (see
             // LauncherState.searchEdge): up and off the top as search opens, and resting on
-            // the keyboard whenever it is up, so nothing ever slips behind it.
+            // the search keyboard while search owns focus or is transitioning. Folder rename
+            // leaves the home dock at rest behind the IME.
             .graphicsLayer { translationY = state.searchEdge(state.searchProgress.value, lift()) - state.dockRowBottomPx }
+            .onGloballyPositioned { state.dockSurfaceCoords = it }
             // Its card becomes the background of search, reaching down to the screen bottom.
             .drawBehind {
                 val shift = state.dockRowBottomPx - state.searchEdge(state.searchProgress.value, lift())
@@ -807,22 +852,71 @@ private fun DockSearchBar(modifier: Modifier) {
     }
 }
 
+internal const val DRAG_ICON_SCALE = 1.12f
+
 /** Icon following the finger while dragging apps and shortcuts. */
 @Composable
 fun DragGhost(state: LauncherState, iconSize: Dp) {
     val s = state.drag ?: return
-    if (s.isWidget) return
+    if (s.isWidget || state.folderLanding != null) return
     val lift = remember(s) { Animatable(1f) }
-    LaunchedEffect(s) { lift.animateTo(1.12f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)) }
+    val preview = state.folderDropPreview(s, includeReleased = true)
+    val density = LocalDensity.current
+    val targetScale = preview?.takeIf { it.folder.large && it.standalone == null }?.let { target ->
+        state.folderSurfaceBounds[target.folderId]?.let { surface ->
+            val cell = largeFolderCell(surface, target.slot, state.folderInsetPx)
+            with(density) { largeFolderGhostScale(cell, iconSize.toPx(), 7.5.dp.toPx()) }
+        }
+    } ?: DRAG_ICON_SCALE
+    LaunchedEffect(s, targetScale) {
+        // Animatable retains the current value and velocity when the hover target changes.
+        lift.animateTo(targetScale, spring(dampingRatio = if (targetScale == DRAG_ICON_SCALE) .5f else 1f,
+            stiffness = Spring.StiffnessMedium))
+    }
+    val folder = s.content as? FolderContent
+    if (folder != null) {
+        val density = LocalDensity.current
+        val width = with(density) { (state.cellW * s.w).toDp() }
+        val height = with(density) { (state.cellH * s.h).toDp() }
+        FolderTile(state, (s.source as DragSource.Placed).item, folder, iconSize,
+            Modifier.offset {
+                IntOffset((s.anchor.x - state.cellW * s.w / 2).roundToInt(), (s.anchor.y - state.cellH * s.h / 2).roundToInt())
+            }.size(width, height), interactive = false)
+        return
+    }
     val half = with(LocalDensity.current) { iconSize.toPx() / 2 }
     AppIcon(
         s.icon,
         iconSize,
         Modifier
             .offset { (s.anchor - Offset(half, half)).let { IntOffset(it.x.roundToInt(), it.y.roundToInt()) } }
+            .testTag("drag-ghost")
             .graphicsLayer {
+                s.visualScale = lift.value
+                alpha = 1f
                 scaleX = lift.value
                 scaleY = lift.value
             },
     )
+}
+
+/** Desktop landing treatment drawn without changing folder cell measurement. */
+@Composable
+internal fun Modifier.landingFrame(
+    radius: Dp, fill: Boolean = true, outline: Boolean = true, inset: Dp = 4.dp,
+    capRadius: Boolean = true, color: Color = LocalOnWallpaper.current.text,
+): Modifier {
+    return this.drawBehind {
+        val inset = inset.toPx()
+        val frameSize = Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset * 2).coerceAtLeast(0f))
+        // Keep straight edges on compact cells instead of letting round-rect clamping form a capsule.
+        val frameRadius = if (capRadius) minOf(radius.toPx(), minOf(frameSize.width, frameSize.height) * .4f) else radius.toPx()
+        val corner = CornerRadius(frameRadius)
+        if (fill) drawRoundRect(color.copy(alpha = .14f), Offset(inset, inset), frameSize, corner)
+        val stroke = 1.5.dp.toPx()
+        if (outline) drawRoundRect(color.copy(alpha = .45f), Offset(inset + stroke / 2, inset + stroke / 2),
+            Size((frameSize.width - stroke).coerceAtLeast(0f), (frameSize.height - stroke).coerceAtLeast(0f)),
+            CornerRadius((frameRadius - stroke / 2).coerceAtLeast(0f)),
+            style = Stroke(stroke))
+    }
 }

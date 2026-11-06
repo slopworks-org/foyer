@@ -37,4 +37,19 @@
     <string name="shortcut_unavailable">Ярлык недоступен</string>
     <string name="wallpaper_chooser">Обои</string>
     <string name="no_app_to_open">Нечем открыть</string>
+    <string name="folder_default">Папка</string>
+    <string name="folder_title">Изменить название</string>
+    <string name="folder_capacity">В большой папке может быть не более девяти приложений.</string>
+    <string name="folder_collision">Недостаточно места. Для большой папки нужна свободная область 2 × 2.</string>
+    <string name="folder_move_failed">Здесь нельзя разместить папку.</string>
+    <string name="folder_enlarge">Увеличить папку</string>
+    <string name="folder_shrink">Уменьшить папку</string>
+    <string name="folder_drop_failed">Не удалось переместить приложение. Проверьте, что в папке есть свободное место и приложение доступно.</string>
+    <string name="folder_earlier">Переместить раньше</string>
+    <string name="folder_later">Переместить позже</string>
+    <string name="folder_move_to">Переместить в %1$s</string>
+    <string name="folder_actions">Действия с папкой</string>
+    <string name="folder_combine_with">Объединить с %1$s</string>
+    <string name="folder_merge_ready">Готово к объединению</string>
+    <string name="folder_position_label">%1$s, строка %2$d, столбец %3$d</string>
 </resources>

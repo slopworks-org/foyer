@@ -47,6 +47,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -274,6 +276,7 @@ private fun ResultRow(state: LauncherState, hit: SearchHit, target: Target, best
             onDragCancel = state::cancelDrag,
         )
     }
+    val transfers = (target.content() as? AppContent)?.let { folderTransferActions(state, it.app) }.orEmpty()
     val label = buildAnnotatedString {
         append(hit.item.label)
         for (r in hit.highlights) {
@@ -288,6 +291,7 @@ private fun ResultRow(state: LauncherState, hit: SearchHit, target: Target, best
             .clip(RoundedCornerShape(20.dp))
             .then(if (best) Modifier.background(colors.secondaryContainer) else Modifier)
             .itemGestures(callbacks) { pressed = it }
+            .semantics { customActions = transfers }
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -366,8 +370,10 @@ private fun AllApps(state: LauncherState, searchable: Searchable) {
                     onDragCancel = state::cancelDrag,
                 )
             }
+            val transfers = folderTransferActions(state, app.key)
             Column(
                 Modifier
+                    .semantics { customActions = transfers }
                     .padding(vertical = 10.dp)
                     .itemGestures(callbacks) { pressed = it },
                 horizontalAlignment = Alignment.CenterHorizontally,
