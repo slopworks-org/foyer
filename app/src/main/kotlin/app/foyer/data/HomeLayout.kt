@@ -126,7 +126,7 @@ data class HomeItem(
 
 @Serializable
 data class Settings(
-    val themedIcons: Boolean = true,
+    val themedIcons: Boolean = false,
 )
 
 @Serializable

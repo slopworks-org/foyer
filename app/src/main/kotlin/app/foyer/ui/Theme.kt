@@ -44,7 +44,7 @@ data class OnWallpaper(val darkText: Boolean) {
 }
 
 val LocalOnWallpaper = staticCompositionLocalOf { OnWallpaper(darkText = false) }
-val LocalThemedIcons = staticCompositionLocalOf { true }
+val LocalThemedIcons = staticCompositionLocalOf { false }
 
 @Composable
 fun FoyerTheme(themedIcons: Boolean, content: @Composable () -> Unit) {
