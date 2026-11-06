@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import app.foyer.data.FolderContent
 import app.foyer.data.AppContent
 import app.foyer.data.AppInfo
 import app.foyer.data.AppRepository
@@ -111,19 +112,29 @@ class Graph(private val context: Context) {
         apps.onPackageRemoved = { pkg, user -> forgetPackage(pkg, user) }
         scope.launch { seedOnFirstRun() }
         scope.launch { syncPinnedShortcuts() }
+        scope.launch {
+            apps.loaded.first { it }
+            apps.apps.collect {
+                cleanupFolderProfiles()
+            }
+        }
+    }
+
+    /** Recheck persisted members after restart/resume, independently of the visible catalog. */
+    fun cleanupFolderProfiles() {
+        scope.launch {
+            val keys = layout.layout.value.items.flatMap { (it.content as? FolderContent)?.apps.orEmpty() }
+            val missing = apps.missingFolderApps(keys)
+            layout.editChange { Edits.reconcileFolderAppsChange(it, missing) }
+        }
     }
 
     private fun forgetPackage(pkg: String, user: Long) {
-        layout.edit { l ->
-            val gone = l.items.filter { item ->
-                when (val c = item.content) {
-                    is AppContent -> c.app.pkg == pkg && c.app.user == user
-                    is ShortcutContent -> c.pkg == pkg && c.user == user
-                    is WidgetContent -> c.provider.startsWith("$pkg/")
-                }
-            }
-            gone.forEach { (it.content as? WidgetContent)?.let { w -> widgetHost.deleteAppWidgetId(w.widgetId) } }
-            l.copy(items = l.items - gone.toSet())
+        layout.editChange { l ->
+            l.items.mapNotNull { it.content as? WidgetContent }
+                .filter { it.provider.startsWith("$pkg/") }
+                .forEach { widgetHost.deleteAppWidgetId(it.widgetId) }
+            Edits.forgetPackageChange(l, pkg, user)
         }
     }
 

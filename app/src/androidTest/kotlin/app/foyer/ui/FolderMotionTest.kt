@@ -1,0 +1,728 @@
+package app.foyer.ui
+
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.input.ImeAction
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import app.foyer.MainActivity
+import app.foyer.data.*
+import app.foyer.graph
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import java.io.File
+
+/** Real layout, lazy composition and pointer ownership; fixtures always go through Edits. */
+class FolderMotionTest {
+    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    private lateinit var state: LauncherState
+    private lateinit var saved: HomeLayout
+    private lateinit var apps: List<AppKey>
+    private var folderId = 0L
+    private var motionCase = ""
+    private val pointerSamples = mutableListOf("case,uptimeMillis,x,y,pressed")
+
+    @Before fun setup() {
+        val graph = rule.activity.graph
+        saved = graph.layout.layout.value
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.executeShellCommand("mkdir -p /sdcard/Download/foyer-three-fixes").use {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
+        }
+        rule.waitUntil(10_000) { graph.apps.apps.value.size >= 15 }
+        apps = graph.apps.apps.value.map { it.key }
+        rule.activity.setContent {
+            val scope = rememberCoroutineScope()
+            state = remember { LauncherState(graph, scope, rule.activity) }
+            Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (motionCase.isNotEmpty()) event.changes.forEach {
+                            pointerSamples += "$motionCase,${it.uptimeMillis},${it.position.x},${it.position.y},${it.pressed}"
+                        }
+                    }
+                }
+            }) { FoyerRoot(state) }
+        }
+        rule.waitForIdle()
+    }
+
+    @After fun restore() {
+        rule.runOnUiThread { state.cancelDrag(); state.graph.layout.edit { saved } }
+        rule.mainClock.autoAdvance = true
+    }
+
+    private fun seed(count: Int, x: Int = 0, y: Int = 0) {
+        rule.runOnIdle {
+            state.openFolder = null
+            state.graph.layout.edit {
+                var result = Edits.add(HomeLayout(seeded = true), FolderContent(apps.take(count), name = "Everyday"), x, y)
+                folderId = result.items.single().id
+                // Keep a scrollable feed behind the panel to catch accidental feed autoscroll.
+                result = Edits.add(result, AppContent(apps.last()), 4, 18)
+                result
+            }
+        }
+        rule.waitForIdle()
+    }
+
+    private fun open() {
+        rule.runOnIdle { state.openFolder = folderId }
+        rule.waitForIdle()
+    }
+
+    private fun showIme() {
+        rule.onNode(SemanticsMatcher.expectValue(SemanticsProperties.ImeAction, ImeAction.Done)).performClick()
+        rule.runOnIdle { state.keyboard?.show() }
+        rule.waitUntil(5_000) {
+            val insets = ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+            val bottom = insets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+            bottom > 0 && (state.folderPanelBounds?.bottom ?: Float.MAX_VALUE) <= state.rootCoords!!.size.height - bottom
+        }
+        rule.waitForIdle()
+    }
+
+    private fun evidence(name: String) {
+        FolderEvidence(File(rule.activity.getExternalFilesDir(null), "folder-motion")).capture(name,
+            includeDevice = true, archive = "/sdcard/Download/foyer-three-fixes") {
+            rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f })
+                .captureToImage().asAndroidBitmap()
+        }
+    }
+
+    private fun assertPreviewIdentities() {
+        for (index in listOf(0, 1, 3, 4)) {
+            rule.onNodeWithTag("folder-morph-preview-$index", useUnmergedTree = true)
+                .assertContentDescriptionEquals(apps[index].toString())
+        }
+        rule.onNodeWithTag("folder-morph-preview-2", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun pointerReleaseMomentumEvidence() {
+        val trace = StringBuilder("case,frame,x,y,releaseVx,releaseVy\n")
+        for ((case, count, opened) in listOf(
+            Triple("fast-diagonal", 4, false), Triple("paused", 4, false),
+            Triple("slow-open", 3, true), Triple("away-open", 4, true),
+            Triple("fast-large", 5, false), Triple("member-transfer", 3, false),
+            Triple("search-grid", 3, false), Triple("search-row", 4, false), Triple("up-sample", 3, false), Triple("cancel", 3, false)).filter {
+                InstrumentationRegistry.getArguments().getString("momentumCases")?.split(",")?.contains(it.first) != false
+            }) {
+            seed(count, 2, 3)
+            rule.runOnIdle { motionCase = case }
+            val key = apps[count]
+            rule.runOnIdle {
+                state.graph.layout.edit {
+                    var next = Edits.add(it, if (case == "member-transfer") FolderContent(listOf(key, apps[0]), name = "Source") else AppContent(key), 0, 0)
+                    if (case == "fast-large") {
+                        val folder = next.items.first().content as FolderContent
+                        next = Edits.folder(next, folderId, folder.copy(large = true))
+                    }
+                    next
+                }
+            }
+            rule.waitForIdle()
+            val label = state.appFor(AppContent(key))!!.label
+            if (case == "member-transfer") {
+                rule.runOnIdle { state.openFolder = state.graph.layout.layout.value.items.last().id }
+                rule.waitForIdle()
+            }
+            if (case.startsWith("search")) {
+                rule.runOnIdle { state.openSearch(); if (case == "search-row") state.query = label }
+                rule.waitForIdle()
+                rule.waitUntil(5_000) {
+                    ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                }
+                rule.waitForIdle()
+            }
+            val start = when {
+                case == "member-transfer" -> rule.runOnIdle { state.panelMemberBounds[state.openFolder!! to state.testEntryId(state.openFolder!!, key)]!!.center }
+                case.startsWith("search") -> {
+                    val result = rule.onNode(hasText(label) and !hasSetTextAction()).performScrollTo()
+                    var previous = result.fetchSemanticsNode().boundsInRoot
+                    var stableSince = android.os.SystemClock.uptimeMillis()
+                    // IME visibility precedes the end of its real window-insets animation.
+                    rule.waitUntil(5_000) {
+                        val current = result.fetchSemanticsNode().boundsInRoot
+                        if (current != previous) {
+                            previous = current
+                            stableSince = android.os.SystemClock.uptimeMillis()
+                        }
+                        android.os.SystemClock.uptimeMillis() - stableSince >= 350
+                    }
+                    result.fetchSemanticsNode().boundsInRoot.center - Offset(0f, if (case == "search-grid") 30f else 0f)
+                }
+                else -> rule.onNodeWithContentDescription(label).fetchSemanticsNode().boundsInRoot.center
+            }
+            if (case.startsWith("search")) evidence("momentum-$case-start")
+            val root = rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f })
+            rule.mainClock.autoAdvance = false
+            root.performTouchInput { down(start) }
+            rule.mainClock.advanceTimeBy(600)
+            root.performTouchInput { advanceEventTime(600); moveTo(start + Offset(30f, 30f), 16) }
+            rule.mainClock.advanceTimeBy(16)
+            if (opened) {
+                rule.runOnUiThread { state.openFolder = folderId }
+                rule.mainClock.advanceTimeBy(400)
+            }
+            rule.runOnIdle { assertNotNull("pointer must start a drag: $case", state.drag) }
+            val end = rule.runOnIdle {
+                val destination = if (case == "fast-large") {
+                    val surface = state.folderSurfaceBounds.getValue(folderId)
+                    val inset = state.folderInsetPx
+                    Offset(surface.left + inset + (surface.width - 2 * inset) * 5 / 6, surface.center.y)
+                } else if (opened) state.folderHitGridBounds!!.center else state.folderBounds[folderId]!!.center
+                destination - state.drag!!.anchorOffset
+            }
+            val direction = if (case == "away-open") Offset(-1f, 1f) else Offset(1f, 1f)
+            val distance = if (case == "slow-open") 20f else 320f
+            root.performTouchInput { moveTo(end - direction * distance, 200) }
+            rule.mainClock.advanceTimeBy(16)
+            for (step in 1..5) {
+                root.performTouchInput { moveTo(end - direction * (distance * (1f - step / 5f)), 16) }
+                rule.mainClock.advanceTimeBy(16)
+            }
+            if (case == "paused") {
+                root.performTouchInput { advanceEventTime(200) }
+                rule.mainClock.advanceTimeBy(200)
+                evidence("momentum-paused-hold")
+            }
+            val releaseAnchorOffset = rule.runOnIdle { state.drag!!.anchorOffset }
+            if (case == "cancel") {
+                root.performTouchInput { cancel() }
+                rule.mainClock.autoAdvance = true
+                rule.waitForIdle()
+                rule.runOnIdle {
+                    assertNull(state.drag)
+                    assertNull(state.folderLanding)
+                    assertFalse((state.graph.layout.layout.value.items.first().content as FolderContent).apps.contains(key))
+                }
+                continue
+            }
+            root.performTouchInput {
+                if (case == "up-sample") { advanceEventTime(16); updatePointerTo(0, end + Offset(8f, 8f)) }
+                up()
+            }
+            val flight = rule.runOnIdle { state.folderLanding!! }
+            assertTrue((flight.origin - (end + releaseAnchorOffset + if (case == "up-sample") Offset(8f, 8f) else Offset.Zero)).getDistance() < 1f)
+            if (case == "paused") assertTrue(flight.velocity.getDistance() < 1f)
+            else {
+                assertTrue("real pointer movement must reach landing: $case", flight.velocity.getDistance() > 30f)
+                assertTrue(flight.velocity.x * direction.x > 0f)
+                assertTrue(flight.velocity.y * direction.y > 0f)
+            }
+            for (frame in 0..50) {
+                rule.mainClock.advanceTimeBy(16)
+                val node = root.fetchSemanticsNode()
+                assertTrue(node.boundsInRoot.width > 0f)
+                val landingNode = rule.onAllNodesWithTag("folder-landing").fetchSemanticsNodes().firstOrNull()
+                if (landingNode != null) {
+                    val center = landingNode.boundsInRoot.center
+                    trace.append("$case,$frame,${center.x},${center.y},${flight.velocity.x},${flight.velocity.y}\n")
+                }
+                if ((case == "fast-diagonal" || case == "paused") && frame < 40 || frame == 5 || frame == 20) evidence("momentum-$case-%02d".format(frame))
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+            rule.runOnIdle {
+                assertNull(state.drag)
+                assertNull(state.folderLanding)
+                assertTrue((state.graph.layout.layout.value.items.first().content as FolderContent).apps.contains(key))
+            }
+        }
+        File(rule.activity.getExternalFilesDir(null), "pointer-samples.csv").writeText(pointerSamples.joinToString("\n"))
+        val file = File(rule.activity.getExternalFilesDir(null), "release-trace.csv")
+        file.writeText(trace.toString())
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+            "cp ${file.absolutePath} /sdcard/Download/foyer-three-fixes/").close()
+    }
+
+    @Test fun sustainedHoverPreservesExplicitFifthInsertion() {
+        for (slot in 2..3) {
+            seed(4, 2, 3)
+            open()
+            rule.mainClock.autoAdvance = false
+            rule.runOnIdle {
+                val grid = state.folderGridBounds!!
+                val point = Offset(grid.left + grid.width * (slot % 2 + .5f) / 2,
+                    grid.top + state.folderRowHeight * 1.5f)
+                state.startDrag(DragSession(DragSource.New(AppContent(apps[4])),
+                    state.appFor(AppContent(apps[4]))?.icon, Offset.Zero, point))
+                assertEquals(DropTarget.Folder(folderId, slot), state.targetFor(state.drag!!))
+            }
+            repeat(40) { rule.mainClock.advanceTimeBy(16) }
+            rule.runOnIdle {
+                assertEquals(3, state.folderGridColumns)
+                assertEquals(DropTarget.Folder(folderId, slot), state.targetFor(state.drag!!))
+                state.endDrag()
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitUntil(5_000) {
+                (state.graph.layout.layout.value.items.first().content as FolderContent).apps.size == 5
+            }
+            rule.waitForIdle()
+            rule.runOnIdle {
+                assertEquals(apps.take(4).toMutableList().apply { add(slot, apps[4]) },
+                    (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+            }
+            evidence("sustained-hover-$slot")
+        }
+    }
+
+    @Test fun adaptiveGridEvidence() {
+        for (opened in listOf(false, true)) for (count in 3..4) {
+            seed(count, 2, 3)
+            if (opened) open()
+            rule.mainClock.autoAdvance = false
+            rule.runOnUiThread {
+                val key = apps[count]
+                val bounds = if (opened) state.folderPanelBounds!! else state.folderBounds[folderId]!!
+                val release = Offset(bounds.center.x, bounds.bottom - 2)
+                state.startDrag(DragSession(DragSource.New(AppContent(key)), state.appFor(AppContent(key))?.icon,
+                    Offset.Zero, release))
+                state.endDrag()
+            }
+            rule.waitUntil(5_000) {
+                rule.mainClock.advanceTimeBy(16)
+                state.graph.layout.layout.value.items.first().content.let { content ->
+                        if (count == 0) content == AppContent(apps[0]) else (content as? FolderContent)?.apps?.size == count + 1
+                    }
+            }
+            for (frame in 0..24) {
+                rule.mainClock.advanceTimeBy(16)
+                evidence("adaptive-${if (opened) "open" else "closed"}-$count-%02d".format(frame))
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+            rule.runOnIdle {
+                val actual = (state.graph.layout.layout.value.items.first().content as FolderContent).apps
+                assertEquals(if (count == 4) listOf(apps[0], apps[1], apps[4], apps[2], apps[3]) else apps.take(4), actual)
+            }
+            if (count == 3) {
+                evidence("adaptive-four-${if (opened) "open" else "closed"}")
+                if (!opened) open()
+                val labels = (0..3).map { rule.onNodeWithTag("folder-label-$it", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }
+                assertEquals(labels[0].center.y, labels[1].center.y, 1f)
+                assertEquals(labels[2].center.y, labels[3].center.y, 1f)
+                assertTrue(labels[2].top > labels[0].top)
+            }
+            if (count == 4) {
+                if (!opened) open()
+                val cells = (0..4).map { rule.onNodeWithTag("folder-label-$it", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot }
+                assertEquals(cells[0].center.y, cells[2].center.y, 1f)
+                assertTrue(cells[3].top > cells[0].top)
+                rule.runOnIdle {
+                    state.graph.layout.edit { Edits.transferApp(it, apps[5], targetFolder = folderId) }
+                    state.graph.layout.edit { Edits.transferApp(it, apps[5], sourceFolder = folderId, targetFolder = folderId, index = 0) }
+                }
+                rule.waitForIdle()
+                rule.runOnIdle {
+                    assertEquals(listOf(apps[5], apps[0], apps[1], apps[4], apps[2], apps[3]),
+                        (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+                }
+            }
+            rule.runOnIdle { state.openFolder = null }
+            rule.waitForIdle()
+        }
+    }
+
+    @Test fun threeCorrectionsEvidence() {
+        seed(3, 2, 3)
+        val caption = rule.onNodeWithTag("folder-caption-$folderId", useUnmergedTree = true)
+        val bounds = caption.fetchSemanticsNode().boundsInRoot
+        fun captionContrast(): Long {
+            val bitmap = caption.captureToImage().asAndroidBitmap()
+            var contrast = 0L
+            for (y in 0 until bitmap.height) for (x in 1 until bitmap.width) {
+                val a = bitmap.getPixel(x - 1, y)
+                val b = bitmap.getPixel(x, y)
+                contrast += kotlin.math.abs(android.graphics.Color.red(a) - android.graphics.Color.red(b)) +
+                    kotlin.math.abs(android.graphics.Color.green(a) - android.graphics.Color.green(b)) +
+                    kotlin.math.abs(android.graphics.Color.blue(a) - android.graphics.Color.blue(b))
+            }
+            return contrast
+        }
+        val contrast = captionContrast()
+        evidence("01-three-app-preview")
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { state.openFolder = folderId }
+        for (frame in 0..18) {
+            rule.mainClock.advanceTimeBy(16)
+            caption.assertIsDisplayed()
+            assertEquals(bounds, caption.fetchSemanticsNode().boundsInRoot)
+            if (frame <= 1) assertTrue("desktop text must still be drawn before the panel covers it", captionContrast() > contrast * .7)
+            evidence("03-open-%02d".format(frame))
+        }
+        rule.runOnUiThread { state.openFolder = null }
+        for (frame in 0..16) {
+            rule.mainClock.advanceTimeBy(16)
+            caption.assertIsDisplayed()
+            assertEquals(bounds, caption.fetchSemanticsNode().boundsInRoot)
+            if (frame == 12) assertTrue("desktop text must be revealed before the transition is disposed", captionContrast() > contrast * .7)
+            evidence("03-close-%02d".format(frame))
+        }
+        rule.mainClock.autoAdvance = true
+        open()
+        evidence("01-three-open-grid")
+        val homeDock = rule.runOnIdle { state.dockSurfaceCoords!!.boundsInRoot() }
+        showIme()
+        assertEquals(homeDock, rule.runOnIdle { state.dockSurfaceCoords!!.boundsInRoot() })
+        val resting = state.dockRowBottomPx
+        val dock = state.dockSurfaceCoords!!.boundsInRoot()
+        assertTrue("dock must stay behind the keyboard", dock.bottom > resting)
+        val name = rule.onNode(SemanticsMatcher.expectValue(SemanticsProperties.ImeAction, ImeAction.Done))
+        name.performTextReplacement("Everyday")
+        evidence("ime-02-rename-keyboard")
+        rule.runOnIdle { state.openFolder = null }
+        rule.waitForIdle()
+        rule.runOnIdle { state.openSearch() }
+        rule.waitForIdle()
+        rule.runOnIdle {
+            assertTrue(state.searchActive)
+            assertTrue(state.searchProgress.value > .99f)
+            assertTrue(state.dockSurfaceCoords!!.boundsInRoot().top < homeDock.top)
+        }
+        evidence("ime-02-real-search")
+    }
+
+    @Test fun landingAcrossPreviewCounts() {
+        for (count in listOf(0, 2, 3, 4, 5, 8, 9, 10)) {
+            for (large in listOf(false, true)) {
+                if (large && count >= 9) continue
+                seed(count, 2, 3)
+                rule.runOnIdle {
+                    state.graph.layout.edit { current ->
+                        val folder = current.items.first { it.id == folderId }.content as FolderContent
+                        Edits.folder(current, folderId, folder.copy(large = large))
+                    }
+                }
+                rule.waitForIdle()
+                rule.mainClock.autoAdvance = false
+                rule.runOnUiThread {
+                    val key = apps[count]
+                    val bounds = state.folderBounds[folderId]!!
+                    val release = Offset(bounds.right - 8, bounds.bottom - 8)
+                    state.startDrag(DragSession(DragSource.New(AppContent(key)), state.appFor(AppContent(key))?.icon,
+                        Offset.Zero, release).also { it.visualScale = 1.12f })
+                    assertEquals(DropTarget.Folder(folderId), state.targetFor(state.drag!!))
+                    assertNotNull(state.plan(state.drag!!, DropTarget.Folder(folderId)))
+                    state.endDrag()
+                }
+                // The drop validates app availability asynchronously.
+                rule.waitUntil(5_000) {
+                    rule.mainClock.advanceTimeBy(16)
+                    state.graph.layout.layout.value.items.first().content.let { content ->
+                        if (count == 0 && !large) content == AppContent(apps[0]) else (content as? FolderContent)?.apps?.size == count + 1
+                    }
+                }
+                rule.runOnUiThread {
+                    val landing = state.folderLanding!!
+                    val bounds = state.folderBounds[folderId]
+                    if (bounds != null) assertEquals(Offset(bounds.right - 8, bounds.bottom - 8), landing.origin)
+                    assertEquals(1.12f, landing.scale)
+                }
+                for (frame in 0..22) {
+                    rule.mainClock.advanceTimeBy(16)
+                    if (frame == 5) rule.onNodeWithTag("folder-landing").assertIsDisplayed()
+                    evidence("04-${if (large) "large" else "small"}-$count-%02d".format(frame))
+                }
+                rule.mainClock.autoAdvance = true
+                rule.waitForIdle()
+                rule.runOnIdle {
+                    assertNull(state.folderLanding)
+                    if (count == 0 && !large) assertEquals(AppContent(apps[0]), state.graph.layout.layout.value.items.first().content)
+                    else assertEquals(if (!large && count == 4) listOf(apps[0], apps[1], apps[4], apps[2], apps[3]) else apps.take(count + 1), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+                }
+            }
+        }
+    }
+
+    @Test fun landingFromDesktopAndFolderAndSearchWithInterruptedPanel() {
+        for (source in 0..2) {
+            seed(5, 2, 3)
+            val key = apps[6]
+            var dragSource: DragSource = DragSource.New(AppContent(key))
+            if (source < 2) rule.runOnIdle {
+                state.graph.layout.edit { current ->
+                    val result = Edits.add(current, if (source == 0) AppContent(key)
+                        else FolderContent(listOf(key, apps[0]), name = "Source"), 0, 0)
+                    dragSource = if (source == 0) DragSource.Placed(result.items.last())
+                        else DragSource.Member(result.items.last().id, key, (result.items.last().content as FolderContent).entries.first().id)
+                    result
+                }
+            }
+            if (source == 2) {
+                rule.runOnIdle { state.openSearch() }
+                rule.waitForIdle()
+            } else open()
+            rule.mainClock.autoAdvance = false
+            rule.runOnUiThread {
+                val release = state.folderBounds[folderId]!!.center
+                state.startDrag(DragSession(dragSource, state.appFor(AppContent(key))?.icon, Offset.Zero, release))
+            }
+            rule.mainClock.advanceTimeBy(1_000)
+            if (source == 2) {
+                rule.runOnUiThread { state.moveDrag(state.drag!!.pointer) }
+                rule.waitUntil(5_000) {
+                    rule.mainClock.advanceTimeBy(16)
+                    state.openFolder == folderId
+                }
+            }
+            rule.mainClock.advanceTimeBy(320)
+            rule.runOnUiThread {
+                val panel = state.folderPanelBounds!!
+                state.drag!!.pointer = Offset(panel.right - 16, panel.bottom - 12)
+                assertEquals(folderId, (state.targetFor(state.drag!!) as DropTarget.Folder).id)
+                state.endDrag()
+            }
+            rule.waitUntil(5_000) {
+                rule.mainClock.advanceTimeBy(16)
+                (state.graph.layout.layout.value.items.first().content as FolderContent).apps.size == 6
+            }
+            for (frame in 0..24) {
+                if (frame == 5) rule.runOnUiThread { state.openFolder = null }
+                if (frame == 9) rule.runOnUiThread { state.openFolder = folderId }
+                rule.mainClock.advanceTimeBy(16)
+                evidence("04-source-$source-%02d".format(frame))
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+            rule.runOnIdle {
+                assertNull(state.folderLanding)
+                assertEquals(apps.take(5) + key, (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+                assertNull(state.drag)
+            }
+        }
+    }
+
+    @Test fun failedAndCanceledDropsReturnWithoutMutation() {
+        seed(9)
+        rule.runOnIdle {
+            state.graph.layout.editChange { Edits.folderChange(it, folderId, (it.items.first().content as FolderContent).copy(large = true)) }
+        }
+        rule.waitForIdle()
+        for (key in listOf(apps[10], apps.first())) {
+            rule.runOnIdle {
+                val bounds = state.folderBounds[folderId]!!
+                state.startDrag(DragSession(DragSource.New(AppContent(key)), state.appFor(AppContent(key))?.icon,
+                    Offset.Zero, Offset(bounds.right - 8, bounds.bottom - 8)))
+                state.endDrag()
+            }
+            rule.waitUntil(5_000) { state.drag == null }
+            rule.runOnIdle { assertNull(state.folderLanding) }
+        }
+        rule.runOnIdle {
+            state.startDrag(DragSession(DragSource.New(AppContent(apps[10])), null, Offset.Zero, Offset.Zero))
+            state.cancelDrag()
+            assertTrue(state.folderLanding?.returning == true)
+            assertEquals(apps.take(9), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+        }
+        seed(2)
+        val before = state.graph.layout.layout.value
+        rule.runOnIdle {
+            val source = before.items.last()
+            state.startDrag(DragSession(DragSource.Placed(source), state.appFor(source.content)?.icon,
+                Offset.Zero, state.folderBounds[folderId]!!.center))
+            state.endDrag()
+            state.cancelDrag()
+        }
+        rule.waitForIdle()
+        rule.runOnIdle { assertEquals(before, state.graph.layout.layout.value); assertNull(state.folderLanding) }
+        lateinit var replacement: DragSession
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread {
+            val source = before.items.last()
+            state.startDrag(DragSession(DragSource.Placed(source), state.appFor(source.content)?.icon,
+                Offset.Zero, state.folderBounds[folderId]!!.center))
+            state.endDrag(Offset(1500f, 0f))
+            replacement = DragSession(DragSource.New(AppContent(apps[8])), null, Offset.Zero, state.folderBounds[folderId]!!.center)
+            state.startDrag(replacement)
+        }
+        rule.mainClock.advanceTimeBy(320)
+        rule.runOnUiThread {
+            assertEquals(before, state.graph.layout.layout.value)
+            assertSame(replacement, state.drag)
+            assertNull(state.folderLanding)
+            state.cancelDrag()
+        }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.runOnIdle { assertEquals(before, state.graph.layout.layout.value) }
+    }
+
+    @Test fun fiveMemberIdentityAndThemedLabels() {
+        seed(5, 2, 3)
+        evidence("five-closed")
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { state.openFolder = folderId }
+        rule.mainClock.advanceTimeBy(192)
+        assertPreviewIdentities()
+        evidence("five-opening")
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        val label = rule.onNodeWithTag("folder-label-4", useUnmergedTree = true)
+        val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        label.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+        val context = rule.activity
+        val dark = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val scheme = if (dark) androidx.compose.material3.dynamicDarkColorScheme(context)
+            else androidx.compose.material3.dynamicLightColorScheme(context)
+        assertEquals(scheme.onSurface, results.single().layoutInput.style.color)
+        evidence(if (dark) "five-dark-open" else "five-light-open")
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { state.openFolder = null }
+        rule.mainClock.advanceTimeBy(96)
+        assertPreviewIdentities()
+        evidence(if (dark) "five-dark-closing" else "five-light-closing")
+        rule.runOnUiThread { state.openFolder = folderId }
+        rule.mainClock.advanceTimeBy(64)
+        assertPreviewIdentities()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.runOnIdle {
+            assertEquals(apps.take(5), (state.graph.layout.layout.value.items.first().content as FolderContent).apps)
+        }
+    }
+
+    @Test fun sixMembersAtEdgesAndInterruptedMorph() {
+        for ((x, y) in listOf(0 to 0, 4 to 0, 0 to 5, 4 to 5)) {
+            seed(6, x, y)
+            open()
+            rule.runOnIdle {
+                val panel = state.folderPanelBounds!!
+                assertTrue(panel.left >= 0 && panel.right <= state.rootCoords!!.size.width)
+                assertEquals(0, state.feedScroll.value)
+            }
+            evidence("six-edge-$x-$y")
+            rule.mainClock.autoAdvance = false
+            rule.runOnUiThread { state.openFolder = null }
+            rule.mainClock.advanceTimeBy(96)
+            evidence("six-closing-$x-$y")
+            rule.runOnUiThread { state.openFolder = folderId }
+            rule.mainClock.advanceTimeBy(80)
+            evidence("six-reversed-$x-$y")
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+            rule.runOnIdle { assertEquals(folderId, state.folderTransitionId) }
+        }
+    }
+
+    @Test fun matchedSixMemberOpeningFrames() {
+        seed(6, 2, 3)
+        evidence("matched-six-closed")
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { state.openFolder = folderId }
+        for (frame in 0..5) {
+            rule.mainClock.advanceTimeBy(if (frame == 0) 16 else 64)
+            evidence("matched-six-open-$frame")
+        }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        evidence("matched-six-open")
+    }
+
+    @Test fun scrolledClosingKeepsPreviewMembersAndCanReverse() {
+        seed(apps.size)
+        open()
+        // The full-height emulator needs IME to put its 21 installed apps offscreen;
+        // a compact emulator exercises the same regression without the keyboard.
+        if (state.folderGridBounds!!.height >= state.folderRowHeight * 6) showIme()
+        val grid = rule.runOnIdle { state.folderGridBounds!! }
+        repeat(2) {
+            rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput { swipe(Offset(grid.center.x, grid.bottom - 10), Offset(grid.center.x, grid.top + 10), 500) }
+        }
+        rule.waitForIdle()
+        evidence("scrolled-open")
+        rule.runOnIdle {
+            assertTrue("fixture must scroll beyond the first preview row", state.folderGridScroll > state.folderRowHeight)
+            assertNull("regression must exercise an uncomposed preview member", state.panelMemberBounds[folderId to state.testEntryId(folderId, apps.first())])
+        }
+        rule.mainClock.autoAdvance = false
+        rule.runOnUiThread { state.openFolder = null }
+        rule.mainClock.advanceTimeBy(128)
+        assertPreviewIdentities()
+        evidence("scrolled-closing")
+        rule.mainClock.advanceTimeBy(48)
+        evidence("scrolled-closing-late")
+        rule.runOnUiThread { state.openFolder = folderId }
+        rule.mainClock.advanceTimeBy(64)
+        assertPreviewIdentities()
+        evidence("scrolled-reversed")
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.runOnIdle { assertEquals(folderId, state.folderTransitionId) }
+    }
+
+    @Test fun dragAutoscrollRetainsPointerAndLeavesFeedStationaryWithIme() {
+        seed(apps.size)
+        open()
+        showIme()
+        evidence("ime-open")
+        val grid = rule.runOnIdle { state.folderGridBounds!! }
+        val first = rule.runOnIdle { state.panelMemberBounds[folderId to state.testEntryId(folderId, apps.first())]!!.center }
+        rule.mainClock.autoAdvance = false
+        rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput { down(first) }
+        rule.mainClock.advanceTimeBy(600)
+        rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput {
+            advanceEventTime(600)
+            moveTo(Offset(grid.center.x, grid.bottom - 4), 150)
+        }
+        rule.mainClock.advanceTimeBy(2_000)
+        evidence("ime-drag-autoscrolled")
+        rule.runOnUiThread {
+            assertTrue("panel must scroll past the pointer-owning row", state.folderGridScroll > state.folderRowHeight)
+            assertNotNull("lazy item must retain gesture ownership offscreen", state.drag)
+            assertEquals(0, state.feedScroll.value)
+        }
+        rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput { up() }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.runOnIdle {
+            val members = (state.graph.layout.layout.value.items.first().content as FolderContent).apps
+            assertTrue("drag must reach an initially offscreen slot", members.indexOf(apps.first()) >= 6)
+            assertEquals(apps.toSet(), members.toSet())
+            assertEquals(0, state.feedScroll.value)
+        }
+        evidence("ime-reordered")
+        val last = rule.runOnIdle { state.panelMemberBounds[folderId to state.testEntryId(folderId, apps.first())]!!.center }
+        rule.mainClock.autoAdvance = false
+        rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput { down(last) }
+        rule.mainClock.advanceTimeBy(600)
+        rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput {
+            advanceEventTime(600)
+            moveTo(Offset(grid.left + grid.width / 6, grid.top + 4), 150)
+        }
+        rule.mainClock.advanceTimeBy(2_000)
+        rule.runOnUiThread {
+            assertTrue("top edge must scroll back", state.folderGridScroll < state.folderRowHeight / 2)
+            assertNotNull(state.drag)
+            assertEquals(0, state.feedScroll.value)
+        }
+        evidence("ime-drag-back-to-top")
+        rule.onNode(isRoot() and SemanticsMatcher("full activity root") { it.boundsInRoot.width > 100f }).performTouchInput { up() }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.runOnIdle {
+            assertEquals(apps.first(), (state.graph.layout.layout.value.items.first().content as FolderContent).apps.first())
+        }
+    }
+}

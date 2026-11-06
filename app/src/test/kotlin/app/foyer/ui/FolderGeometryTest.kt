@@ -1,0 +1,200 @@
+package app.foyer.ui
+
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import app.foyer.data.AppKey
+import app.foyer.data.Edits
+import app.foyer.data.FolderContent
+import app.foyer.data.HomeLayout
+import org.junit.Assert.*
+import org.junit.Test
+
+class FolderGeometryTest {
+    @Test fun everyLargeFrameStaysInsideItsCellAndClearOfNeighborArtwork() {
+        for (icon in listOf(40f, 48f, 56f, 64f, 72f)) {
+            // The absolute LTR slots are deliberately independent of layout direction.
+            val surface = Rect(10f, 20f, 10f + icon * 2.5f, 20f + icon * 2.5f)
+            val inset = LARGE_FOLDER_INSET.value
+            for (slot in 0..8) {
+                val cell = largeFolderCell(surface, slot, inset)
+                val frame = cell.deflate(4f)
+                assertTrue("slot=$slot", cell.contains(frame.topLeft) && cell.contains(frame.bottomRight))
+                assertEquals(cell.center, frame.center)
+                val ghost = icon * largeFolderGhostScale(cell, icon, 7.5f)
+                assertTrue(ghost <= icon * LARGE_FOLDER_ICON_SCALE)
+                assertTrue((frame.width - ghost) / 2 >= 3.49f)
+                assertEquals(slot, largeFolderSlot(frame.center, surface, inset))
+                for (neighbor in 0..8) if (neighbor != slot) {
+                    val artwork = folderMemberStart(surface, true, 9, neighbor, icon, inset)
+                    assertFalse("icon=$icon slot=$slot neighbor=$neighbor", frame.overlaps(artwork))
+                }
+            }
+        }
+    }
+
+    @Test fun adaptiveColumnsAndFifthInsertionPreserveRelativeOrder() {
+        val keys = (0..5).map { AppKey("pkg$it", "Main", 0) }
+        for (count in 0..6) {
+            assertEquals(if (count < 5) 2 else 3, folderColumns(count))
+            assertEquals(3, folderColumns(count, true))
+        }
+        val initial = Edits.add(HomeLayout(), FolderContent(keys.take(4)), 0, 0)
+        val five = Edits.transferApp(initial, keys[4], targetFolder = 1)
+        assertEquals(listOf(keys[0], keys[1], keys[4], keys[2], keys[3]), (five.items.first().content as FolderContent).apps)
+        assertEquals(6, (Edits.transferApp(five, keys[4], targetFolder = 1).items.first().content as FolderContent).entries.size)
+        val four = Edits.transferApp(five, keys[4], sourceFolder = 1, x = 4, y = 4)
+        assertEquals(keys.take(4), (four.items.first().content as FolderContent).apps)
+        val grid = Rect(0f, 0f, 300f, 200f)
+        assertEquals(3, folderInsertionIndex(Offset(250f, 150f), grid, 100f, 4))
+        assertEquals(Offset(225f, 108f), folderGridIcon(grid, 3, 100f, 40f, 8f, 0f, 2).topLeft + Offset(20f, 0f))
+    }
+
+    @Test fun landingHandoffUsesGridClipInsteadOfRenameFooter() {
+        val panel = Rect(0f, 0f, 300f, 352f)
+        val grid = Rect(8f, 12f, 292f, 300f)
+        val viewport = folderContentClip(panel, grid, 1f)
+        assertEquals(grid, viewport)
+        val footerIcon = Rect(30f, 304f, 78f, 352f)
+        assertTrue(panel.contains(footerIcon.center))
+        assertFalse(viewport.overlaps(footerIcon))
+        assertTrue(folderLandingClip(footerIcon, viewport, 1f).isEmpty)
+        val partialIcon = Rect(30f, 276f, 78f, 324f)
+        assertEquals(partialIcon, folderLandingClip(partialIcon, viewport, .65f))
+        assertEquals(Rect(30f, 276f, 78f, 300f), folderLandingClip(partialIcon, viewport, 1f))
+        assertEquals(312f, folderLandingClip(partialIcon, viewport, .825f).bottom, .001f)
+        assertEquals(panel, folderContentClip(panel, grid, 0f))
+        assertEquals(Rect(4f, 6f, 296f, 326f), folderContentClip(panel, grid, .5f))
+    }
+
+    @Test fun offscreenPreviewDestinationsRemainUnclippedAndReversible() {
+        val grid = Rect(20f, 100f, 320f, 400f)
+        val anchor = Rect(300f, 600f, 350f, 650f)
+        for (index in listOf(0, 1, 3, 4)) {
+            val start = folderMemberStart(anchor, false, 30, index, 50f, 5f)
+            val end = folderGridIcon(grid, index, 90f, 50f, 8f, scroll = 720f)
+            assertEquals(-612f + index / 3 * 90f, end.top)
+            assertEquals(50f, end.width)
+            assertEquals(start, folderMemberFrame(start, end, 0f))
+            assertEquals(end, folderMemberFrame(start, end, 1f))
+            val halfway = folderMemberFrame(start, end, .5f)
+            assertEquals((start.center.y + end.center.y) / 2, halfway.center.y, .001f)
+            // Direction changes use the same progress, not a new clipped destination.
+            assertEquals(halfway, folderMemberFrame(start, end, .5f))
+        }
+    }
+
+    @Test fun previewSlotsPreserveOpenGridCellsWithoutChangingStoredOrder() {
+        val expected = listOf(emptyList(), listOf(0), listOf(0, 1), listOf(0, 1, 2),
+            listOf(0, 1, 2, 3), listOf(0, 1, 3, 4), listOf(0, 1, 3, 4))
+        val surface = Rect(0f, 0f, 100f, 100f)
+        for (count in 0..12) {
+            val members = folderPreviewMembers(count)
+            assertEquals(expected[minOf(count, 6)], members.map { it.index })
+            members.forEach { (index, center) ->
+                assertEquals(Offset(10 + 80 * center.x, 10 + 80 * center.y),
+                    folderMemberStart(surface, false, count, index, 50f, 10f).center)
+                if (count >= 4) {
+                    assertEquals(index % folderColumns(count), if (center.x < .5f) 0 else 1)
+                    assertEquals(index / folderColumns(count), if (center.y < .5f) 0 else 1)
+                }
+            }
+            assertEquals((0 until minOf(count, 9)).toList(), folderPreviewMembers(count, true).map { it.index })
+        }
+    }
+
+    @Test fun edgeScrollUsesKeyboardSizedViewportAndStopsOutsidePanelLane() {
+        val grid = Rect(20f, 100f, 320f, 220f)
+        assertEquals(-840f, folderEdgeScroll(Offset(100f, 100f), grid, 56f, 840f), .001f)
+        assertEquals(840f, folderEdgeScroll(Offset(100f, 220f), grid, 56f, 840f), .001f)
+        assertEquals(420f, folderEdgeScroll(Offset(100f, 192f), grid, 56f, 840f), .001f)
+        assertEquals(0f, folderEdgeScroll(Offset(100f, 160f), grid, 56f, 840f), .001f)
+        assertEquals(0f, folderEdgeScroll(Offset(10f, 215f), grid, 56f, 840f), .001f)
+        assertEquals(0f, folderEdgeScroll(Offset(100f, 300f), grid, 56f, 840f), .001f)
+    }
+
+    @Test fun dockOccludesScrolledFoldersAcrossItsEntireSurface() {
+        val viewport = Rect(0f, 0f, 400f, 800f)
+        val dock = Rect(0f, 600f, 400f, 800f)
+        val hiddenFolder = Rect(100f, 550f, 250f, 750f)
+        val obscuredMember = Offset(150f, 650f)
+        assertTrue(hiddenFolder.contains(obscuredMember))
+        assertEquals(DropLayer.Dock, dropLayerAt(obscuredMember, viewport, null, dock))
+        assertEquals(DropLayer.Dock, dropLayerAt(Offset(5f, 780f), viewport, null, dock))
+        assertEquals(DropLayer.Feed, dropLayerAt(Offset(150f, 575f), viewport, null, dock))
+    }
+
+    @Test fun panelPaddingAndNameOccludeUnderlyingMembers() {
+        val viewport = Rect(0f, 0f, 400f, 800f)
+        val panel = Rect(20f, 200f, 380f, 550f)
+        val underlyingMember = Rect(100f, 490f, 180f, 540f)
+        val nameArea = Offset(140f, 520f)
+        assertTrue(underlyingMember.contains(nameArea))
+        assertEquals(DropLayer.Panel, dropLayerAt(nameArea, viewport, panel, null))
+        assertEquals(DropLayer.Panel, dropLayerAt(nameArea, viewport, panel, Rect(0f, 500f, 400f, 800f)))
+        assertEquals(DropLayer.Panel, dropLayerAt(Offset(22f, 202f), viewport, panel, null))
+        assertEquals(DropLayer.Feed, dropLayerAt(Offset(140f, 560f), viewport, panel, null))
+        assertNull(dropLayerAt(Offset(140f, -5f), viewport, panel, null))
+    }
+
+    @Test fun dockLiftBelongsOnlyToSearchIncludingTransitionFrames() {
+        assertEquals(0f, dockKeyboardLift(300f, false, 0f, 0f))
+        assertEquals(0f, dockKeyboardLift(300f, false, .1f, 0f, folderVisible = true))
+        assertEquals(300f, dockKeyboardLift(300f, true, 0f, 0f, folderVisible = true))
+        assertEquals(300f, dockKeyboardLift(300f, false, 0f, 1f, folderVisible = true))
+        assertEquals(300f, dockKeyboardLift(300f, true, 0f, 0f))
+        assertEquals(300f, dockKeyboardLift(300f, false, 0f, 1f))
+        assertEquals(300f, dockKeyboardLift(300f, false, .1f, 0f))
+    }
+
+    @Test fun previewsMatchMemberCounts() {
+        assertEquals(emptyList<Offset>(), folderPreviewCenters(0))
+        assertEquals(listOf(Offset(.5f, .5f)), folderPreviewCenters(1))
+        assertEquals(listOf(Offset(.25f, .5f), Offset(.75f, .5f)), folderPreviewCenters(2))
+        assertEquals(listOf(Offset(.25f, .25f), Offset(.75f, .25f), Offset(.5f, .75f)), folderPreviewCenters(3))
+        assertEquals(listOf(Offset(.25f, .25f), Offset(.75f, .25f), Offset(.25f, .75f), Offset(.75f, .75f)), folderPreviewCenters(4))
+        assertEquals(folderPreviewCenters(4), folderPreviewCenters(20))
+    }
+
+    @Test fun panelFollowsAnchorAndClampsAtEveryEdge() {
+        val viewport = Rect(12f, 24f, 388f, 600f)
+        for (point in listOf(Offset(0f, 0f), Offset(400f, 0f), Offset(0f, 800f), Offset(400f, 800f))) {
+            val panel = folderPanelRect(Rect(point, Size(50f, 50f)), viewport, Size(300f, 240f))
+            assertTrue(panel.left >= viewport.left && panel.right <= viewport.right)
+            assertTrue(panel.top >= viewport.top && panel.bottom <= viewport.bottom)
+        }
+        val upper = folderPanelRect(Rect(100f, 100f, 150f, 150f), viewport, Size(200f, 100f))
+        val lower = folderPanelRect(Rect(100f, 400f, 150f, 450f), viewport, Size(200f, 100f))
+        assertEquals(300f, lower.top - upper.top)
+    }
+
+    @Test fun keyboardAndLongContentsFitVisibleArea() {
+        val viewport = Rect(12f, 24f, 388f, 260f)
+        assertEquals(viewport, folderPanelRect(Rect(300f, 500f, 350f, 550f), viewport, Size(500f, 2000f)))
+    }
+
+    @Test fun morphStartsAtActualPreviewIconsIncludingTriangleAndLargeGrid() {
+        val surface = Rect(100f, 200f, 200f, 300f)
+        val triangle = (0..2).map { folderMemberStart(surface, false, 3, it, 100f, 10f) }
+        assertEquals(listOf(Offset(130f, 230f), Offset(170f, 230f), Offset(150f, 270f)), triangle.map { it.center })
+        assertTrue(triangle.all { it.width == 38f })
+        val large = (0..8).map { folderMemberStart(surface, true, 9, it, 100f, 10f) }
+        assertEquals(surface.center, large[4].center)
+        assertEquals(70f, large[4].width)
+        assertTrue(large[0].center.x < large[1].center.x && large[1].center.x < large[2].center.x)
+        assertTrue(large[0].center.y < large[3].center.y && large[3].center.y < large[6].center.y)
+    }
+
+    @Test fun stationarySlotsIncludePaddingAndTitleWithoutFollowingAnimatedMembers() {
+        val grid = Rect(20f, 100f, 320f, 300f)
+        assertEquals(0, folderInsertionIndex(Offset(0f, 90f), grid, 100f, 5))
+        assertEquals(2, folderInsertionIndex(Offset(310f, 120f), grid, 100f, 5))
+        assertEquals(3, folderInsertionIndex(Offset(30f, 220f), grid, 100f, 5))
+        assertEquals(5, folderInsertionIndex(Offset(150f, 350f), grid, 100f, 5))
+        assertEquals(0, folderInsertionIndex(grid.center, grid, 100f, 0))
+        assertEquals(7, folderInsertionIndex(Offset(150f, 120f), grid, 100f, 20, scroll = 200f))
+        assertEquals(3, folderInsertionForMember(2, 0))
+        assertEquals(0, folderInsertionForMember(0, 2))
+        assertEquals(1, folderInsertionForMember(1, -1))
+    }
+}

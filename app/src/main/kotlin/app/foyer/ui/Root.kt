@@ -9,6 +9,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import kotlin.coroutines.cancellation.CancellationException
@@ -46,10 +47,25 @@ import kotlinx.coroutines.launch
 @Composable
 fun FoyerRoot(state: LauncherState) {
     val layout by state.graph.layout.layout.collectAsStateWithLifecycle()
+    val view = LocalView.current
+    SideEffect {
+        state.platformMergeFeedback = { armed ->
+            view.performHapticFeedback(if (armed) android.view.HapticFeedbackConstants.CONFIRM
+                else android.view.HapticFeedbackConstants.CLOCK_TICK)
+        }
+    }
+    val density = LocalDensity.current
+    state.observeFolderChanges(with(density) { state.iconSize.toPx() }, with(density) { 5.dp.toPx() })
     val searchable by state.graph.searchable.collectAsStateWithLifecycle()
     state.searchable = searchable
     state.keyboard = LocalSoftwareKeyboardController.current
     state.focusManager = LocalFocusManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(state.folderFeedback) {
+        state.folderFeedback?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
+        state.folderFeedback = null
+    }
+    androidx.compose.runtime.LaunchedEffect(layout) { state.reconcileFolderUi(layout) }
     val scope = rememberCoroutineScope()
     val closePull = remember { SearchClosePull(state) }
     val lift = keyboardLift()
@@ -112,7 +128,18 @@ fun FoyerRoot(state: LauncherState) {
 
                 SystemBarsAppearance(state)
 
-                DragGhost(state, iconSize = state.iconSize)
+                BackHandler(enabled = state.drag != null) { state.cancelDrag() }
+                // These overlays use physical root coordinates, regardless of locale.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Box(Modifier.fillMaxSize()) {
+                        FolderOverlay(state, layout)
+                        MergePreviewOverlay(state, layout)
+                        FolderDropOutline(state)
+                        DragGhost(state, iconSize = state.iconSize)
+                        FolderCollapseOverlay(state)
+                        FolderLandingOverlay(state, layout)
+                    }
+                }
                 MenuOverlay(state)
                 WidgetPicker(state)
                 SettingsScreen(state, layout.settings)

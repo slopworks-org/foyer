@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity(), LauncherActions {
 
     private val requestHome = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         state?.isDefaultHome = DefaultHome.isDefault(this)
+        graph.cleanupFolderProfiles()
         graph.apps.reload() // shortcuts become available once we are the home app
     }
 
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity(), LauncherActions {
     override fun onResume() {
         super.onResume()
         state?.isDefaultHome = DefaultHome.isDefault(this)
+        graph.cleanupFolderProfiles()
     }
 
     override fun onStop() {
