@@ -9,7 +9,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "app.foyer"
+        applicationId = "org.slopworks.foyer"
         minSdk = 31
         targetSdk = 37
         versionCode = 1
@@ -31,6 +31,10 @@ android {
     }
 
     buildTypes {
+        create("uiTest") {
+            initWith(getByName("debug"))
+            matchingFallbacks += "debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -38,6 +42,8 @@ android {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
+
+    testBuildType = "uiTest"
 
     buildFeatures {
         compose = true
@@ -47,6 +53,20 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) {
+        it.applicationId.set("org.slopworks.dev")
+    }
+    onVariants(selector().withBuildType("uiTest")) {
+        it.applicationId.set("org.slopworks.test")
+        it.androidTest?.applicationId?.set("org.slopworks.test.test")
+    }
+}
+
+configurations.named("uiTestImplementation") {
+    extendsFrom(configurations.getByName("debugImplementation"))
 }
 
 kotlin {
