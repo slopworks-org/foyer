@@ -27,6 +27,17 @@ Each app build has separate data, so UI tests do not change release or debug lay
 `lefthook install` sets up a pre-commit hook that runs `./gradlew check`
 (`lefthook.yml`). `LEFTHOOK=0 git commit` skips it once.
 
+### Device selection for agents
+
+- Run Android tests only on an explicitly selected emulator by default. Verify its
+  ADB serial starts with `emulator-` and set `ANDROID_SERIAL` to that serial before
+  invoking connected Gradle tests or ADB test commands.
+- Never run connected tests without selecting a device, even when only one device
+  appears connected. If no emulator is available, stop and report the blocker.
+- Installing or running test builds on a physical device requires the user's
+  explicit permission. A connected device, permission to run checks, or permission
+  to write build caches does not grant permission to use a physical device.
+
 ### Releases
 
 1. After the merge, tag `main` with `v<versionName>` and push the tag.
