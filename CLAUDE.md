@@ -10,22 +10,24 @@ for what it does; this file covers how to work on it.
 ```bash
 ./gradlew check                 # lint + unit tests for every module; the gate
 ./gradlew :search:test          # search engine tests only
-./gradlew :app:assembleRelease  # app/build/outputs/apk/release/app-release.apk
-./gradlew :app:installRelease   # install on the connected device
+./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:installDebug     # install dev; select the device with ANDROID_SERIAL
 ```
-
-The release build is signed with the debug key and is not debuggable, so
-`adb shell run-as org.slopworks.foyer` does not work on it. After installing, make Foyer
-the home app with
-`adb shell cmd role add-role-holder android.app.role.HOME org.slopworks.foyer 0`.
-
-Release builds use `org.slopworks.foyer`; debug builds use `org.slopworks.dev`.
-`./gradlew connectedAndroidTest` installs the `uiTest` build as
-`org.slopworks.test` and its instrumentation APK as `org.slopworks.uitests`.
-Each app build has separate data, so UI tests do not change release or debug layouts.
 
 `lefthook install` sets up a pre-commit hook that runs `./gradlew check`
 (`lefthook.yml`). `LEFTHOOK=0 git commit` skips it once.
+
+### Build variants for agents
+
+- Use the `debug` build (`org.slopworks.dev`) for all manual device interaction.
+  Requests to install, try, or test Foyer mean this dev build. Select one device
+  with `ANDROID_SERIAL` for Gradle installs and `adb -s <serial>` for ADB commands.
+- Release (`org.slopworks.foyer`) is off-limits to agents. Never install, launch,
+  stop, uninstall, clear its data, or otherwise interact with it. Permission to
+  install or test Foyer does not authorize using release.
+- Use `uiTest` (`org.slopworks.test`, instrumentation `org.slopworks.uitests`)
+  exclusively for automated instrumentation tests. This is the only exception to
+  the dev-only device rule; never use it for manual testing or user installs.
 
 ### Device tests run by agents
 
