@@ -122,9 +122,11 @@ private val FRAME_MARGIN = 16.dp
 private val FRAME_INSET = WIDGET_INSET - 4.dp
 
 /** Root position of what a drop springs from: the icon centre, or a widget's top-left. */
-private fun anchorOf(coords: LayoutCoordinates, item: HomeItem): Offset {
+private fun anchorOf(coords: LayoutCoordinates, item: HomeItem, iconCoords: LayoutCoordinates?): Offset {
     val p = coords.positionInRoot()
     if (item.content is WidgetContent) return p
+    if (iconCoords?.isAttached == true) return p + coords.localPositionOf(iconCoords,
+        Offset(iconCoords.size.width / 2f, iconCoords.size.height / 2f))
     return Offset(p.x + coords.size.width / 2f, p.y + coords.size.height / 2f)
 }
 
@@ -355,6 +357,7 @@ private fun Feed(
                         state = state,
                         item = item,
                         iconSize = iconSize,
+                        showAppLabels = layout.settings.showAppLabels,
                         modifier = Modifier
                             .offset(cellW * item.x, cellH * item.y)
                             .size(cellW * item.w, cellH * item.h),
@@ -405,15 +408,16 @@ private fun DropIndicator(state: LauncherState, cellW: Dp, cellH: Dp, iconSize: 
 
 /** An item in the feed or dock: handles gestures, hiding while dragged, and the spring after a drop. */
 @Composable
-fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier) {
+fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier, showAppLabels: Boolean = false) {
     var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var iconCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val springBack = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val animScope = rememberCoroutineScope()
     val origin = state.dropOrigins[item.id]
     LaunchedEffect(origin, item.x, item.y, item.dock) {
         if (origin == null) return@LaunchedEffect
         withFrameNanos { } // let the new position be laid out first
-        val now = coords?.takeIf { it.isAttached }?.let { anchorOf(it, item) }
+        val now = coords?.takeIf { it.isAttached }?.let { anchorOf(it, item, iconCoords) }
         if (now != null) {
             // Own scope: consuming the origin below restarts this effect, which must not cut the spring short.
             animScope.launch {
@@ -447,17 +451,19 @@ fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Mod
         }
 
     when (content) {
-        is AppContent, is ShortcutContent -> IconTile(state, item, iconSize, baseModifier)
+        is AppContent, is ShortcutContent -> IconTile(state, item, iconSize, baseModifier, showAppLabels) { iconCoords = it }
         is FolderContent -> FolderTile(state, item, content, iconSize, baseModifier)
         is WidgetContent -> WidgetTile(state, item, content, baseModifier)
     }
 }
 
 @Composable
-private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier) {
+private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier,
+    showAppLabels: Boolean, onIconPositioned: (LayoutCoordinates) -> Unit) {
     val content = item.content
     val app = state.appFor(content)
     val shortcut = (content as? ShortcutContent)?.let { state.shortcutFor(it) }
+    var iconCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         if (pressed) 0.9f else 1f,
@@ -467,9 +473,10 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
     val callbacks = remember(item) {
         ItemGestureCallbacks(
             onTap = { bounds -> state.launch(item.content, bounds) },
-            onLongPress = { bounds -> state.showItemMenu(item, bounds) },
+            onLongPress = { bounds -> state.showItemMenu(item, iconCoords?.takeIf { it.isAttached }?.boundsInRoot() ?: bounds) },
             onDragStart = { pointer, bounds ->
-                state.startDrag(DragSession(DragSource.Placed(item), iconOf(state, item.content), bounds.center - pointer, pointer))
+                val center = iconCoords?.takeIf { it.isAttached }?.boundsInRoot()?.center ?: bounds.center
+                state.startDrag(DragSession(DragSource.Placed(item), iconOf(state, item.content), center - pointer, pointer))
             },
             onDrag = state::moveDrag,
             onDragEnd = state::endDrag,
@@ -479,23 +486,36 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
     DisposableEffect(item.id) { onDispose { state.appIconBounds.remove(item.id); state.appIconMeasurements.remove(item.id) } }
     val ready = state.mergeReady == item.id
     val previewing = state.mergePreviews.any { it.target.id == item.id }
+    val label = if (content is ShortcutContent) shortcut?.label ?: content.label else app?.label.orEmpty()
     val readiness = if (ready) stringResource(R.string.folder_merge_ready) else ""
     val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
-    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty(); stateDescription = readiness }, contentAlignment = Alignment.Center) {
-        Box(Modifier.onGloballyPositioned {
-            if (content is AppContent) {
-                state.appIconBounds[item.id] = it.boundsInRoot()
-                state.appIconMeasurements[item.id] = item to state.feedScroll.value
+    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = label; stateDescription = readiness }, contentAlignment = Alignment.Center) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.onGloballyPositioned {
+                iconCoords = it
+                onIconPositioned(it)
+                if (content is AppContent) {
+                    state.appIconBounds[item.id] = it.boundsInRoot()
+                    state.appIconMeasurements[item.id] = item to state.feedScroll.value
+                }
+            }) {
+                if (content is ShortcutContent) Box(Modifier.scale(scale)) { ShortcutIcon(state, shortcut, app, iconSize) }
+                else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer {
+                    alpha = if (previewing) 0f else if (app == null) 0.35f else 1f
+                    scaleX = scale
+                    scaleY = scaleX
+                })
             }
-        }) {
-            if (content is ShortcutContent) Box(Modifier.scale(scale)) { ShortcutIcon(state, shortcut, app, iconSize) }
-            else AppIcon(app?.icon, iconSize, Modifier.graphicsLayer {
-                alpha = if (previewing) 0f else if (app == null) 0.35f else 1f
-                scaleX = scale
-                scaleY = scaleX
-            })
+            if (showAppLabels && !item.dock) Text(
+                label,
+                color = LocalOnWallpaper.current.text,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.testTag("app-label-${item.id}").fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 4.dp),
+            )
         }
-
     }
 }
 
