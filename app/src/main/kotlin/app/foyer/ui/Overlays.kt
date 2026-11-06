@@ -561,43 +561,58 @@ fun AliasDialog(state: LauncherState) {
 @Composable
 fun SettingsScreen(state: LauncherState, settings: Settings) {
     if (!state.settingsOpen) return
-    val back = predictiveBackLayer { state.settingsOpen = false }
+    androidx.compose.runtime.key(state.settingsSessionId) { SettingsSession(state, settings) }
+}
+
+@Composable
+private fun SettingsSession(state: LauncherState, settings: Settings) {
+    var updatesOpen by remember { mutableStateOf(false) }
+    val mainScroll = rememberScrollState()
+    val updatesScroll = rememberScrollState()
+    fun closePage() { if (updatesOpen) updatesOpen = false else state.settingsOpen = false }
+    val back = androidx.compose.runtime.key(updatesOpen) { predictiveBackLayer(::closePage) }
     val colors = MaterialTheme.colorScheme
     fun edit(f: (Settings) -> Settings) = state.graph.layout.edit { it.copy(settings = f(it.settings)) }
-    Box(
-        back
-            .fillMaxSize()
-            .background(colors.surfaceContainerLow)
-            .pointerInput(Unit) { detectTapGestures { } },
-    ) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 8.dp)) {
-            Text(
-                stringResource(R.string.action_settings),
-                style = MaterialTheme.typography.headlineMedium,
-                color = colors.onSurface,
-                modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 16.dp),
-            )
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                if (!state.isDefaultHome) {
-                    DefaultHomeBanner(
-                        onSetDefault = state.actions::requestDefaultHome,
-                        modifier = Modifier.padding(horizontal = 8.dp).padding(bottom = 16.dp),
+    UpdateSettings(onChoice = { enabled -> edit { it.copy(updateChecks = enabled) } }) { update, actions ->
+        Box(back.fillMaxSize().background(colors.surfaceContainerLow).pointerInput(Unit) { detectTapGestures { } }) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 8.dp)) {
+                Row(Modifier.padding(top = 12.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (updatesOpen) {
+                        androidx.compose.material3.IconButton(onClick = { updatesOpen = false }) {
+                            Icon(MenuIcons.ArrowBack, contentDescription = stringResource(R.string.updates_back), tint = colors.onSurface)
+                        }
+                    }
+                    Text(
+                        stringResource(if (updatesOpen) R.string.updates_title else R.string.action_settings),
+                        style = MaterialTheme.typography.headlineMedium, color = colors.onSurface,
+                        modifier = Modifier.padding(start = if (updatesOpen) 8.dp else 16.dp, top = 8.dp),
                     )
                 }
-                SettingSwitch(stringResource(R.string.settings_themed_icons), stringResource(R.string.settings_themed_icons_summary), settings.themedIcons) {
-                    edit { s -> s.copy(themedIcons = it) }
+                if (updatesOpen) {
+                    UpdateSettingsContent(settings.updateChecks == true, update, actions.choose, actions.check,
+                        actions.download, actions.notifications, Modifier.weight(1f).verticalScroll(updatesScroll))
+                } else {
+                    Column(Modifier.weight(1f).verticalScroll(mainScroll)) {
+                        if (!state.isDefaultHome) {
+                            DefaultHomeBanner(state.actions::requestDefaultHome,
+                                Modifier.padding(horizontal = 8.dp).padding(bottom = 16.dp))
+                        }
+                        if (settings.updateChecks == null) {
+                            UpdateConsentBanner(actions.choose, Modifier.padding(horizontal = 8.dp).padding(bottom = 16.dp))
+                        }
+                        SettingSwitch(stringResource(R.string.settings_themed_icons), stringResource(R.string.settings_themed_icons_summary), settings.themedIcons) {
+                            edit { s -> s.copy(themedIcons = it) }
+                        }
+                        SettingSwitch(stringResource(R.string.settings_app_labels), stringResource(R.string.settings_app_labels_summary), settings.showAppLabels) {
+                            edit { s -> s.copy(showAppLabels = it) }
+                        }
+                        UpdatePreference(settings.updateChecks == true, { updatesOpen = true }, actions.choose)
+                        SettingRow(stringResource(R.string.action_wallpaper_style), null) { state.actions.wallpaper() }
+                    }
                 }
-                SettingSwitch(stringResource(R.string.settings_app_labels), stringResource(R.string.settings_app_labels_summary), settings.showAppLabels) {
-                    edit { s -> s.copy(showAppLabels = it) }
-                }
-                SettingRow(stringResource(R.string.action_wallpaper_style), null) { state.actions.wallpaper() }
+                Text(stringResource(R.string.settings_footer, HomeLayout.COLUMNS), color = colors.onSurfaceVariant,
+                    fontSize = 12.sp, modifier = Modifier.padding(16.dp))
             }
-            Text(
-                stringResource(R.string.settings_footer, HomeLayout.COLUMNS),
-                color = colors.onSurfaceVariant,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(16.dp),
-            )
         }
     }
 }

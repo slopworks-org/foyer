@@ -293,6 +293,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var selectedWidget by mutableStateOf<Long?>(null)
     var widgetPickerAt by mutableStateOf<Pair<Int, Int>?>(null)
     var settingsOpen by mutableStateOf(false)
+    var settingsSessionId by mutableStateOf(0)
+        private set
     var aliasEditor by mutableStateOf<AppInfo?>(null)
     var isDefaultHome by mutableStateOf(true)
 
@@ -417,6 +419,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         aliasEditor = null
         widgetPickerAt = null
         settingsOpen = false
+        settingsSessionId++
         if (searchOpen) closeSearch(animated = wasVisible)
         if (wasVisible && !hadOverlay) scope.launch { feedScroll.animateScrollTo(0) }
     }
