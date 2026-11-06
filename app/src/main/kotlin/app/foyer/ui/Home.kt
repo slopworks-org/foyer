@@ -106,7 +106,6 @@ import app.foyer.data.WidgetContent
 import app.foyer.system.FoyerWidgetHostView
 import app.foyer.system.widgetSpan
 import kotlin.math.exp
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 // Grid proportions measured off Pixel Launcher (5 columns, no labels): side margin ≈ 2.8% of the
@@ -283,8 +282,12 @@ private fun Feed(
     LaunchedEffect(state.feedScroll.isScrollInProgress) {
         if (state.feedScroll.isScrollInProgress) state.selectedWidget = null
     }
-    val visibleRows = ((viewportHeight - topPad - bottomPad) / cellH).toInt() + 1
-    val rows = max(layout.rows + if (drag != null) 2 else 0, visibleRows)
+    val rows = layout.rows + if (drag != null) 2 else 0
+    // Fill the viewport exactly; rounding up to a whole empty row creates phantom scrolling.
+    val minimumGridHeight = with(density) {
+        (viewportHeight.roundToPx() - topPad.roundToPx() - bottomPad.roundToPx()).coerceAtLeast(0).toDp()
+    }
+    val gridHeight = maxOf(cellH * rows, minimumGridHeight)
 
     // Auto-scroll while dragging near the top or bottom of the feed.
     LaunchedEffect(drag) {
@@ -342,7 +345,7 @@ private fun Feed(
             Modifier
                 .padding(horizontal = hPad)
                 .fillMaxWidth()
-                .height(cellH * rows)
+                .height(gridHeight)
                 .onGloballyPositioned { state.gridCoords = it }
                 .emptyAreaGestures(state),
         ) {
