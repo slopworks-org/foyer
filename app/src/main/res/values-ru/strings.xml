@@ -53,4 +53,36 @@
     <string name="folder_position_label">%1$s, строка %2$d, столбец %3$d</string>
     <string name="settings_app_labels">Подписи приложений</string>
     <string name="settings_app_labels_summary">Показывать названия под значками на главном экране</string>
+
+    <!-- GitHub release updates. -->
+    <string name="updates_channel">Обновления приложения</string>
+    <string name="updates_available">Доступна Foyer %1$s</string>
+    <string name="updates_download_summary">Скачайте APK с GitHub и откройте его для установки обновления.</string>
+    <string name="updates_update">Обновить</string>
+    <string name="updates_skip">Пропустить</string>
+    <string name="updates_question">Проверять обновления?</string>
+    <string name="updates_consent_summary">Проверять релизы GitHub каждый день и уведомлять о новых версиях. Обновления устанавливаются только с вашего подтверждения.</string>
+    <string name="updates_no">Нет</string>
+    <string name="updates_yes">Да</string>
+    <string name="updates_automatic">Проверять автоматически</string>
+    <string name="updates_daily">Проверять релизы GitHub раз в день</string>
+    <string name="updates_current">Установлена последняя версия Foyer</string>
+    <string name="updates_error">Не удалось проверить обновления. Проверьте соединение и повторите попытку.</string>
+    <string name="updates_no_browser">Нет браузера для скачивания обновления.</string>
+    <string name="updates_notifications_disabled">Уведомления отключены. Разрешите их, чтобы узнавать об обновлениях.</string>
+    <string name="updates_notifications_action">Настроить уведомления</string>
+    <string name="updates_checking">Проверяем…</string>
+    <string name="updates_check">Проверить обновления</string>
+    <string name="updates_title">Обновления</string>
+    <string name="updates_installed">Установлена версия %1$s</string>
+    <string name="updates_download">Скачать обновление</string>
+    <string name="updates_back">Назад в настройки</string>
+    <string name="updates_recheck_error">Не удалось проверить ещё раз. Показана версия из предыдущей проверки. Повторите попытку.</string>
+    <string name="updates_preference_summary">Автопроверка и новые версии</string>
+    <string name="updates_checking_title">Проверяем обновления</string>
+    <string name="updates_error_title">Проверка не удалась</string>
+    <string name="updates_idle_title">Есть ли новая версия?</string>
+    <string name="updates_idle_summary">Можно проверить сейчас, даже если автопроверка выключена.</string>
+    <string name="updates_previous_result">Ранее найдена Foyer %1$s. Проверяем, есть ли версия новее.</string>
+    <string name="updates_notifications_title">Оповещения выключены</string>
 </resources>

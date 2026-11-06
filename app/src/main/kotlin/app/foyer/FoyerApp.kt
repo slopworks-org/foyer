@@ -43,6 +43,11 @@ class FoyerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         graph = Graph(this)
+        graph.scope.launch {
+            graph.layout.layout.map { it.settings.updateChecks == true }.distinctUntilChanged().collect {
+                app.foyer.updates.UpdateWorker.schedule(this@FoyerApp, it)
+            }
+        }
     }
 }
 

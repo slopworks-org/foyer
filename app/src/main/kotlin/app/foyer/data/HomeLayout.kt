@@ -128,6 +128,8 @@ data class HomeItem(
 data class Settings(
     val themedIcons: Boolean = false,
     val showAppLabels: Boolean = false,
+    /** Null means the update-check question has not been answered. */
+    val updateChecks: Boolean? = null,
 )
 
 @Serializable

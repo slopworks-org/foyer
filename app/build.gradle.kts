@@ -76,6 +76,7 @@ kotlin {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     implementation(project(":search"))
+    implementation("androidx.work:work-runtime:2.11.2")
 
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
