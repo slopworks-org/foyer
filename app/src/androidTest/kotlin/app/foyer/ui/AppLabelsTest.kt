@@ -30,9 +30,10 @@ class AppLabelsTest {
         try {
             rule.runOnUiThread {
                 graph.layout.edit {
-                    Edits.add(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app.key), 0, 1),
+                    Edits.add(Edits.add(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app.key), 0, 1),
                         AppContent(app.key), 0, 0, dock = true),
-                        ShortcutContent(app.key.pkg, "test-shortcut", app.key.user, "New event"), 1, 0, dock = true)
+                        ShortcutContent(app.key.pkg, "test-shortcut", app.key.user, "New event"), 1, 0, dock = true),
+                        ShortcutContent(app.key.pkg, "feed-shortcut", app.key.user, "Compose message"), 1, 1)
                 }
             }
             rule.activity.setContent {
@@ -40,9 +41,10 @@ class AppLabelsTest {
                 state = remember { LauncherState(graph, scope, rule.activity) }
                 FoyerRoot(state)
             }
-            for (id in 1..3) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
+            for (id in 1..4) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
             rule.onAllNodesWithContentDescription(app.label).assertCountEquals(2)
             val dockHeight = rule.runOnIdle { state.dockContentPx }
+            val originalIcon = rule.runOnIdle { state.appIconBounds.getValue(1) }
             rule.runOnIdle { state.settingsOpen = true }
             rule.onNodeWithText(rule.activity.getString(R.string.settings_app_labels)).performClick()
             rule.runOnIdle {
@@ -53,6 +55,26 @@ class AppLabelsTest {
             for (id in 2..3) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
             rule.onNodeWithContentDescription("New event").assertIsDisplayed()
             rule.runOnIdle { assertEquals(dockHeight, state.dockContentPx, 0f) }
+            val icon = rule.runOnIdle { state.appIconBounds.getValue(1) }
+            val label = rule.onNodeWithTag("app-label-1").fetchSemanticsNode().boundsInRoot
+            val cell = rule.onAllNodesWithContentDescription(app.label).fetchSemanticsNodes()
+                .first { it.boundsInRoot.contains(icon.center) }.boundsInRoot
+            assertEquals(cell.center.y, (icon.top + label.bottom) / 2f, 1f)
+            assertEquals(cell.center.x, icon.center.x, 1f)
+            assertTrue(icon.center.y < originalIcon.center.y)
+            rule.onRoot().performTouchInput { longClick(icon.center) }
+            rule.runOnIdle {
+                assertEquals(icon, state.menu!!.anchor)
+                state.menu = null
+            }
+            val shortcut = rule.onNodeWithContentDescription("Compose message")
+            val shortcutCell = shortcut.fetchSemanticsNode().boundsInRoot
+            val shortcutLabel = rule.onNodeWithTag("app-label-4").fetchSemanticsNode().boundsInRoot
+            shortcut.performTouchInput { longClick() }
+            rule.runOnIdle {
+                assertEquals(shortcutCell.center.y, (state.menu!!.anchor.top + shortcutLabel.bottom) / 2f, 1f)
+                state.menu = null
+            }
             val file = File(rule.activity.filesDir, "home.json")
             rule.waitUntil(10000) {
                 !File(file.path + ".new").exists() && !File(file.path + ".bak").exists() &&
@@ -74,8 +96,9 @@ class AppLabelsTest {
                 assertFalse(graph.layout.layout.value.settings.showAppLabels)
                 state.settingsOpen = false
             }
-            for (id in 1..3) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
+            for (id in 1..4) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
             rule.onAllNodesWithContentDescription(app.label).assertCountEquals(2)
+            rule.runOnIdle { assertEquals(originalIcon, state.appIconBounds.getValue(1)) }
         } finally {
             rule.runOnUiThread { graph.layout.edit { saved } }
         }
