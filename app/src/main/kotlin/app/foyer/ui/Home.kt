@@ -154,11 +154,12 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
         }
         val iconSize = cellW * ICON_OF_CELL
         state.iconSize = iconSize
-        val dockHeight = DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2 + SEARCH_BAR_HEIGHT + SEARCH_BAR_BOTTOM
+        val labelSpace = if (layout.settings.showAppLabels) 24.dp else 0.dp
+        val dockHeight = labelSpace + DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2 + SEARCH_BAR_HEIGHT + SEARCH_BAR_BOTTOM
         val dockTotal = dockHeight + navBottom
         with(density) {
             state.dockRowBottomPx = (maxHeight - navBottom - SEARCH_BAR_HEIGHT - SEARCH_BAR_BOTTOM).toPx()
-            state.dockContentPx = (DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2).toPx()
+            state.dockContentPx = (labelSpace + DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2).toPx()
         }
         val heightPx = with(density) { maxHeight.toPx() }
         val fadeTop = with(density) { (statusTop * 0.5f).toPx() } / heightPx
@@ -202,6 +203,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
         Dock(
             state = state,
             items = layout.dock,
+            showAppLabels = layout.settings.showAppLabels,
             iconSize = iconSize,
             bottomCorners = displayBottomCorners(),
             // The search bar spans from the first icon's left edge to the last one's right edge.
@@ -355,6 +357,7 @@ private fun Feed(
                         state = state,
                         item = item,
                         iconSize = iconSize,
+                        showAppLabels = layout.settings.showAppLabels,
                         modifier = Modifier
                             .offset(cellW * item.x, cellH * item.y)
                             .size(cellW * item.w, cellH * item.h),
@@ -405,7 +408,7 @@ private fun DropIndicator(state: LauncherState, cellW: Dp, cellH: Dp, iconSize: 
 
 /** An item in the feed or dock: handles gestures, hiding while dragged, and the spring after a drop. */
 @Composable
-fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier) {
+fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier, showAppLabels: Boolean = false) {
     var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val springBack = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val animScope = rememberCoroutineScope()
@@ -447,14 +450,14 @@ fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Mod
         }
 
     when (content) {
-        is AppContent, is ShortcutContent -> IconTile(state, item, iconSize, baseModifier)
+        is AppContent, is ShortcutContent -> IconTile(state, item, iconSize, baseModifier, showAppLabels)
         is FolderContent -> FolderTile(state, item, content, iconSize, baseModifier)
         is WidgetContent -> WidgetTile(state, item, content, baseModifier)
     }
 }
 
 @Composable
-private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier) {
+private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier, showAppLabels: Boolean) {
     val content = item.content
     val app = state.appFor(content)
     val shortcut = (content as? ShortcutContent)?.let { state.shortcutFor(it) }
@@ -479,9 +482,10 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
     DisposableEffect(item.id) { onDispose { state.appIconBounds.remove(item.id); state.appIconMeasurements.remove(item.id) } }
     val ready = state.mergeReady == item.id
     val previewing = state.mergePreviews.any { it.target.id == item.id }
+    val label = if (content is ShortcutContent) shortcut?.label ?: content.label else app?.label.orEmpty()
     val readiness = if (ready) stringResource(R.string.folder_merge_ready) else ""
     val transfers = (content as? AppContent)?.let { folderTransferActions(state, it.app, sourceItem = item.id) }.orEmpty()
-    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = app?.label ?: shortcut?.label.orEmpty(); stateDescription = readiness }, contentAlignment = Alignment.Center) {
+    Box(modifier.itemGestures(callbacks) { pressed = it }.semantics { customActions = transfers; contentDescription = label; stateDescription = readiness }, contentAlignment = Alignment.Center) {
         Box(Modifier.onGloballyPositioned {
             if (content is AppContent) {
                 state.appIconBounds[item.id] = it.boundsInRoot()
@@ -495,7 +499,16 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
                 scaleY = scaleX
             })
         }
-
+        if (showAppLabels) Text(
+            label,
+            color = if (item.dock) MaterialTheme.colorScheme.onSurface else LocalOnWallpaper.current.text,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.testTag("app-label-${item.id}").fillMaxWidth().padding(horizontal = 2.dp)
+                .offset(y = iconSize / 2 + 12.dp),
+        )
     }
 }
 
@@ -714,6 +727,7 @@ private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: 
 private fun Dock(
     state: LauncherState,
     items: List<HomeItem>,
+    showAppLabels: Boolean,
     iconSize: Dp,
     bottomCorners: Pair<Dp, Dp>,
     searchInset: Dp,
@@ -789,7 +803,7 @@ private fun Dock(
                     val item = items.firstOrNull { it.x == slot }
                     if (item != null) {
                         androidx.compose.runtime.key(item.id) {
-                            PlacedItem(state, item, iconSize, modifier = Modifier.fillMaxSize())
+                            PlacedItem(state, item, iconSize, modifier = Modifier.fillMaxSize(), showAppLabels = showAppLabels)
                         }
                     }
                 }

@@ -587,6 +587,9 @@ fun SettingsScreen(state: LauncherState, settings: Settings) {
                 SettingSwitch(stringResource(R.string.settings_themed_icons), stringResource(R.string.settings_themed_icons_summary), settings.themedIcons) {
                     edit { s -> s.copy(themedIcons = it) }
                 }
+                SettingSwitch(stringResource(R.string.settings_app_labels), stringResource(R.string.settings_app_labels_summary), settings.showAppLabels) {
+                    edit { s -> s.copy(showAppLabels = it) }
+                }
                 SettingRow(stringResource(R.string.action_wallpaper_style), null) { state.actions.wallpaper() }
             }
             Text(

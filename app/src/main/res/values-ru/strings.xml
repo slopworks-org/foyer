@@ -51,4 +51,6 @@
     <string name="folder_combine_with">Объединить с %1$s</string>
     <string name="folder_merge_ready">Готово к объединению</string>
     <string name="folder_position_label">%1$s, строка %2$d, столбец %3$d</string>
+    <string name="settings_app_labels">Подписи приложений</string>
+    <string name="settings_app_labels_summary">Показывать названия под значками на главном экране и в доке</string>
 </resources>
