@@ -154,12 +154,11 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
         }
         val iconSize = cellW * ICON_OF_CELL
         state.iconSize = iconSize
-        val labelSpace = if (layout.settings.showAppLabels) 24.dp else 0.dp
-        val dockHeight = labelSpace + DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2 + SEARCH_BAR_HEIGHT + SEARCH_BAR_BOTTOM
+        val dockHeight = DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2 + SEARCH_BAR_HEIGHT + SEARCH_BAR_BOTTOM
         val dockTotal = dockHeight + navBottom
         with(density) {
             state.dockRowBottomPx = (maxHeight - navBottom - SEARCH_BAR_HEIGHT - SEARCH_BAR_BOTTOM).toPx()
-            state.dockContentPx = (labelSpace + DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2).toPx()
+            state.dockContentPx = (DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2).toPx()
         }
         val heightPx = with(density) { maxHeight.toPx() }
         val fadeTop = with(density) { (statusTop * 0.5f).toPx() } / heightPx
@@ -203,7 +202,6 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
         Dock(
             state = state,
             items = layout.dock,
-            showAppLabels = layout.settings.showAppLabels,
             iconSize = iconSize,
             bottomCorners = displayBottomCorners(),
             // The search bar spans from the first icon's left edge to the last one's right edge.
@@ -499,9 +497,9 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
                 scaleY = scaleX
             })
         }
-        if (showAppLabels) Text(
+        if (showAppLabels && !item.dock) Text(
             label,
-            color = if (item.dock) MaterialTheme.colorScheme.onSurface else LocalOnWallpaper.current.text,
+            color = LocalOnWallpaper.current.text,
             fontSize = 12.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -727,7 +725,6 @@ private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: 
 private fun Dock(
     state: LauncherState,
     items: List<HomeItem>,
-    showAppLabels: Boolean,
     iconSize: Dp,
     bottomCorners: Pair<Dp, Dp>,
     searchInset: Dp,
@@ -803,7 +800,7 @@ private fun Dock(
                     val item = items.firstOrNull { it.x == slot }
                     if (item != null) {
                         androidx.compose.runtime.key(item.id) {
-                            PlacedItem(state, item, iconSize, modifier = Modifier.fillMaxSize(), showAppLabels = showAppLabels)
+                            PlacedItem(state, item, iconSize, modifier = Modifier.fillMaxSize())
                         }
                     }
                 }

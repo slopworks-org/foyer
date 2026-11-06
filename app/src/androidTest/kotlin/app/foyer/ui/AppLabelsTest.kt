@@ -21,7 +21,7 @@ import java.io.File
 class AppLabelsTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun toggleUpdatesFeedAndDockAndSurvivesReload() {
+    @Test fun toggleUpdatesFeedKeepsDockUnlabeledAndSurvivesReload() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
         lateinit var state: LauncherState
@@ -30,8 +30,9 @@ class AppLabelsTest {
         try {
             rule.runOnUiThread {
                 graph.layout.edit {
-                    Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app.key), 0, 1),
-                        AppContent(app.key), 0, 0, dock = true)
+                    Edits.add(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app.key), 0, 1),
+                        AppContent(app.key), 0, 0, dock = true),
+                        ShortcutContent(app.key.pkg, "test-shortcut", app.key.user, "New event"), 1, 0, dock = true)
                 }
             }
             rule.activity.setContent {
@@ -39,15 +40,19 @@ class AppLabelsTest {
                 state = remember { LauncherState(graph, scope, rule.activity) }
                 FoyerRoot(state)
             }
-            for (id in 1..2) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
+            for (id in 1..3) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
             rule.onAllNodesWithContentDescription(app.label).assertCountEquals(2)
+            val dockHeight = rule.runOnIdle { state.dockContentPx }
             rule.runOnIdle { state.settingsOpen = true }
             rule.onNodeWithText(rule.activity.getString(R.string.settings_app_labels)).performClick()
             rule.runOnIdle {
                 assertTrue(graph.layout.layout.value.settings.showAppLabels)
                 state.settingsOpen = false
             }
-            for (id in 1..2) rule.onNodeWithTag("app-label-$id").assertIsDisplayed().assertTextEquals(app.label)
+            rule.onNodeWithTag("app-label-1").assertIsDisplayed().assertTextEquals(app.label)
+            for (id in 2..3) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
+            rule.onNodeWithContentDescription("New event").assertIsDisplayed()
+            rule.runOnIdle { assertEquals(dockHeight, state.dockContentPx, 0f) }
             val file = File(rule.activity.filesDir, "home.json")
             rule.waitUntil(10000) {
                 !File(file.path + ".new").exists() && !File(file.path + ".bak").exists() &&
@@ -69,7 +74,7 @@ class AppLabelsTest {
                 assertFalse(graph.layout.layout.value.settings.showAppLabels)
                 state.settingsOpen = false
             }
-            for (id in 1..2) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
+            for (id in 1..3) rule.onNodeWithTag("app-label-$id").assertDoesNotExist()
             rule.onAllNodesWithContentDescription(app.label).assertCountEquals(2)
         } finally {
             rule.runOnUiThread { graph.layout.edit { saved } }

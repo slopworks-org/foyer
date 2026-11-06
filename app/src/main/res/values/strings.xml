@@ -54,5 +54,5 @@
     <string name="folder_merge_ready">Ready to combine</string>
     <string name="folder_position_label">%1$s, row %2$d, column %3$d</string>
     <string name="settings_app_labels">App labels</string>
-    <string name="settings_app_labels_summary">Show names below icons on the home screen and in the dock</string>
+    <string name="settings_app_labels_summary">Show names below icons on the home screen</string>
 </resources>
