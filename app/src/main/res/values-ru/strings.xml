@@ -53,4 +53,14 @@
     <string name="folder_position_label">%1$s, строка %2$d, столбец %3$d</string>
     <string name="settings_app_labels">Подписи приложений</string>
     <string name="settings_app_labels_summary">Показывать названия под значками на главном экране</string>
+
+    <!-- GitHub release updates. -->
+    <string name="updates_channel">Обновления приложения</string>
+    <string name="updates_available">Доступна Foyer %1$s</string>
+    <string name="updates_download_summary">Скачайте APK с GitHub и откройте его для установки обновления.</string>
+    <string name="updates_update">Обновить</string>
+    <string name="updates_skip">Пропустить</string>
+    <string name="updates_current">Установлена последняя версия Foyer</string>
+    <string name="updates_error">Не удалось проверить обновления. Проверьте соединение и повторите попытку.</string>
+    <string name="updates_no_browser">Нет браузера для скачивания обновления.</string>
 </resources>

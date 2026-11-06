@@ -55,4 +55,14 @@
     <string name="folder_position_label">%1$s, row %2$d, column %3$d</string>
     <string name="settings_app_labels">App labels</string>
     <string name="settings_app_labels_summary">Show names below icons on the home screen</string>
+
+    <!-- GitHub release updates. -->
+    <string name="updates_channel">App updates</string>
+    <string name="updates_available">Foyer %1$s is available</string>
+    <string name="updates_download_summary">Download the APK from GitHub, then open it to install the update.</string>
+    <string name="updates_update">Update</string>
+    <string name="updates_skip">Skip</string>
+    <string name="updates_current">Foyer is up to date</string>
+    <string name="updates_error">Could not check for updates. Check your connection and try again.</string>
+    <string name="updates_no_browser">No browser available to download the update.</string>
 </resources>
