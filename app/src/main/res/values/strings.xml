@@ -27,12 +27,11 @@
 
     <string name="settings_themed_icons">Themed icons</string>
     <string name="settings_themed_icons_summary">Wallpaper colors for icons that support them</string>
-    <string name="settings_default_home">Default home app</string>
-    <string name="settings_default_home_set">Foyer is already the home app</string>
-    <string name="settings_default_home_unset">Tap to choose Foyer</string>
+    <string name="settings_default_home_title">Foyer isn’t your default home app</string>
+    <string name="settings_default_home_summary">Choose Foyer to open your home screen when you swipe home.</string>
+    <string name="settings_default_home_action">Set as default</string>
     <string name="settings_footer">Foyer · %1$d-column grid · works offline</string>
 
-    <string name="make_default_home">Make Foyer the home app: app shortcuts only work then</string>
     <string name="widget_unavailable">Widget unavailable</string>
     <string name="pinned_to_home">“%1$s” added to home</string>
     <string name="cannot_open_app">Can’t open “%1$s”</string>

@@ -25,12 +25,11 @@
 
     <string name="settings_themed_icons">Тематические значки</string>
     <string name="settings_themed_icons_summary">Цвета из обоев для значков, которые это поддерживают</string>
-    <string name="settings_default_home">Главный экран по умолчанию</string>
-    <string name="settings_default_home_set">Foyer уже главный экран</string>
-    <string name="settings_default_home_unset">Нажмите, чтобы выбрать Foyer</string>
+    <string name="settings_default_home_title">Foyer не выбран главным экраном</string>
+    <string name="settings_default_home_summary">Выберите Foyer, чтобы открывать его жестом перехода на главный экран.</string>
+    <string name="settings_default_home_action">Сделать по умолчанию</string>
     <string name="settings_footer">Foyer · сетка %1$d колонок · работает без сети</string>
 
-    <string name="make_default_home">Сделать Foyer главным экраном — без этого не работают ярлыки приложений</string>
     <string name="widget_unavailable">Виджет недоступен</string>
     <string name="pinned_to_home">«%1$s» на главном экране</string>
     <string name="cannot_open_app">Не удалось открыть «%1$s»</string>
