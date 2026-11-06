@@ -61,7 +61,7 @@ androidComponents {
     }
     onVariants(selector().withBuildType("uiTest")) {
         it.applicationId.set("org.slopworks.test")
-        it.androidTest?.applicationId?.set("org.slopworks.test.test")
+        it.androidTest?.applicationId?.set("org.slopworks.uitests")
     }
 }
 

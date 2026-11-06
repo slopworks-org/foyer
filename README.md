@@ -32,7 +32,7 @@ Foyer needs Android 12 or later.
 
 To build from source, run `./gradlew :app:installRelease`. A local build is signed with your debug key, so it cannot update a release build.
 
-Release builds use `org.slopworks.foyer`. For development, run `./gradlew :app:installDebug` to install `org.slopworks.dev` alongside the release app. UI tests (`./gradlew connectedAndroidTest`) use a separate `org.slopworks.test` app and an `org.slopworks.test.test` instrumentation APK, keeping release and development layouts separate. The old `app.foyer` app remains a separate installation; its data is not migrated automatically.
+Release builds use `org.slopworks.foyer`. For development, run `./gradlew :app:installDebug` to install `org.slopworks.dev` alongside the release app. UI tests (`./gradlew connectedAndroidTest`) use a separate `org.slopworks.test` app and an `org.slopworks.uitests` instrumentation APK, keeping release and development layouts separate. The old `app.foyer` app remains a separate installation; its data is not migrated automatically.
 
 <details>
 <summary>Gestures</summary>

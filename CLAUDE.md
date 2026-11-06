@@ -21,7 +21,7 @@ the home app with
 
 Release builds use `org.slopworks.foyer`; debug builds use `org.slopworks.dev`.
 `./gradlew connectedAndroidTest` installs the `uiTest` build as
-`org.slopworks.test` and its instrumentation APK as `org.slopworks.test.test`.
+`org.slopworks.test` and its instrumentation APK as `org.slopworks.uitests`.
 Each app build has separate data, so UI tests do not change release or debug layouts.
 
 `lefthook install` sets up a pre-commit hook that runs `./gradlew check`
