@@ -29,9 +29,8 @@ Each app build has separate data, so UI tests do not change release or debug lay
 
 ### Releases
 
-1. In a PR, raise `versionName` and `versionCode` in `app/build.gradle.kts`.
-2. After the merge, tag `main` with `v<versionName>` and push the tag.
-3. `.github/workflows/release.yml` builds the APK, signs it with the release
+1. After the merge, tag `main` with `v<versionName>` and push the tag.
+2. `.github/workflows/release.yml` builds the APK, signs it with the release
    key from the repository secrets and publishes a GitHub release.
 
 The secrets are `FOYER_KEYSTORE_BASE64`, `FOYER_KEYSTORE_PASSWORD` and
