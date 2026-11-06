@@ -15,9 +15,14 @@ for what it does; this file covers how to work on it.
 ```
 
 The release build is signed with the debug key and is not debuggable, so
-`adb shell run-as app.foyer` does not work on it. After installing, make Foyer
+`adb shell run-as org.slopworks.foyer` does not work on it. After installing, make Foyer
 the home app with
-`adb shell cmd role add-role-holder android.app.role.HOME app.foyer 0`.
+`adb shell cmd role add-role-holder android.app.role.HOME org.slopworks.foyer 0`.
+
+Release builds use `org.slopworks.foyer`; debug builds use `org.slopworks.dev`.
+`./gradlew connectedAndroidTest` installs the `uiTest` build as
+`org.slopworks.test` and its instrumentation APK as `org.slopworks.uitests`.
+Each app build has separate data, so UI tests do not change release or debug layouts.
 
 `lefthook install` sets up a pre-commit hook that runs `./gradlew check`
 (`lefthook.yml`). `LEFTHOOK=0 git commit` skips it once.
