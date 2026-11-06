@@ -608,8 +608,8 @@ private fun DefaultHomeBanner(onSetDefault: () -> Unit, modifier: Modifier = Mod
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
-        color = colors.primaryContainer,
-        contentColor = colors.onPrimaryContainer,
+        color = colors.surfaceContainerHigh,
+        contentColor = colors.onSurface,
     ) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Icon(MenuIcons.Info, contentDescription = null, modifier = Modifier.size(32.dp))
@@ -634,7 +634,7 @@ private fun DefaultHomeBanner(onSetDefault: () -> Unit, modifier: Modifier = Mod
 }
 
 @Composable
-private fun SettingSwitch(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SettingSwitch(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
