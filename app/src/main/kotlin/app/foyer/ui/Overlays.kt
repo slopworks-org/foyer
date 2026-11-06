@@ -20,6 +20,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +47,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Surface
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -573,20 +577,55 @@ fun SettingsScreen(state: LauncherState, settings: Settings) {
                 color = colors.onSurface,
                 modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 16.dp),
             )
-            SettingSwitch(stringResource(R.string.settings_themed_icons), stringResource(R.string.settings_themed_icons_summary), settings.themedIcons) {
-                edit { s -> s.copy(themedIcons = it) }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                if (!state.isDefaultHome) {
+                    DefaultHomeBanner(
+                        onSetDefault = state.actions::requestDefaultHome,
+                        modifier = Modifier.padding(horizontal = 8.dp).padding(bottom = 16.dp),
+                    )
+                }
+                SettingSwitch(stringResource(R.string.settings_themed_icons), stringResource(R.string.settings_themed_icons_summary), settings.themedIcons) {
+                    edit { s -> s.copy(themedIcons = it) }
+                }
+                SettingRow(stringResource(R.string.action_wallpaper_style), null) { state.actions.wallpaper() }
             }
-            SettingRow(stringResource(R.string.settings_default_home), stringResource(if (state.isDefaultHome) R.string.settings_default_home_set else R.string.settings_default_home_unset)) {
-                state.actions.requestDefaultHome()
-            }
-            SettingRow(stringResource(R.string.action_wallpaper_style), null) { state.actions.wallpaper() }
-            Spacer(Modifier.weight(1f))
             Text(
                 stringResource(R.string.settings_footer, HomeLayout.COLUMNS),
                 color = colors.onSurfaceVariant,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(16.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun DefaultHomeBanner(onSetDefault: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        color = colors.primaryContainer,
+        contentColor = colors.onPrimaryContainer,
+    ) {
+        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Icon(MenuIcons.Info, contentDescription = null, modifier = Modifier.size(32.dp))
+            Text(
+                stringResource(R.string.settings_default_home_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                stringResource(R.string.settings_default_home_summary),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Button(
+                onClick = onSetDefault,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+            ) {
+                Text(stringResource(R.string.settings_default_home_action), style = MaterialTheme.typography.titleMedium)
+            }
         }
     }
 }

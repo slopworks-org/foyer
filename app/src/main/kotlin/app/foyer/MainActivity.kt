@@ -53,7 +53,12 @@ class MainActivity : ComponentActivity(), LauncherActions {
         super.onCreate(savedInstanceState)
         setContent {
             val scope = rememberCoroutineScope()
-            val s = remember { LauncherState(graph, scope, this) }
+            val s = remember {
+                LauncherState(graph, scope, this).apply {
+                    isDefaultHome = DefaultHome.isDefault(this@MainActivity)
+                    settingsOpen = intent.hasCategory(Intent.CATEGORY_LAUNCHER) || !isDefaultHome
+                }
+            }
             state = s
             FoyerRoot(s)
         }
@@ -84,8 +89,14 @@ class MainActivity : ComponentActivity(), LauncherActions {
         // Lifecycle is still RESUMED here if Home was pressed while we were already on screen.
         val wasVisible = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         super.onNewIntent(intent)
+        setIntent(intent)
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
             state?.onHomePressed(wasVisible)
+        } else if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+            state?.let {
+                it.onHomePressed(wasVisible)
+                it.settingsOpen = true
+            }
         }
     }
 

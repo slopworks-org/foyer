@@ -338,7 +338,6 @@ private fun Feed(
             },
     ) {
         Spacer(Modifier.height(topPad))
-        if (!state.isDefaultHome) DefaultHomeBanner(state)
         Box(
             Modifier
                 .padding(horizontal = hPad)
@@ -386,25 +385,6 @@ private fun Modifier.emptyAreaGestures(state: LauncherState): Modifier {
                 },
             )
         }
-}
-
-@Composable
-private fun DefaultHomeBanner(state: LauncherState) {
-    Box(
-        Modifier
-            .padding(horizontal = 24.dp, vertical = 8.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer)
-            .pointerInput(Unit) { detectTapGestures { state.actions.requestDefaultHome() } }
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-    ) {
-        Text(
-            stringResource(R.string.make_default_home),
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            fontSize = 14.sp,
-        )
-    }
 }
 
 @Composable
