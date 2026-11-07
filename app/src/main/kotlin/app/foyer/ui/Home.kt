@@ -143,6 +143,10 @@ private val DOCK_CORNER = 32.dp
 fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val hapticView = androidx.compose.ui.platform.LocalView.current
+    val shadeFeedback = remember(hapticView) {
+        ShadePullFeedback { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM) }
+    }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -168,6 +172,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
 
         Feed(
             state = state,
+            feedback = shadeFeedback,
             layout = layout,
             cellW = cellW,
             cellH = cellH,
@@ -201,6 +206,8 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
                 },
         )
 
+        ShadePullIndicator(shadeFeedback)
+
         Dock(
             state = state,
             items = layout.dock,
@@ -221,6 +228,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
 @Composable
 private fun Feed(
     state: LauncherState,
+    feedback: ShadePullFeedback,
     layout: HomeLayout,
     cellW: Dp,
     cellH: Dp,
@@ -236,15 +244,17 @@ private fun Feed(
     // itself (that is a private SystemUI channel for the recents provider), so the feed follows
     // the finger instead and the decision is made on release: far enough and not pulled back
     // up → open; otherwise spring back. Holding still does nothing.
-    val pullThreshold = with(density) { 96.dp.toPx() }
+    val pullThreshold = with(density) { 48.dp.toPx() }
+    val reversalTolerance = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop / pullThreshold
     val pullScope = rememberCoroutineScope()
     val pullVisual = remember { Animatable(0f) }
-    val pull = remember {
+    val pull = remember(pullThreshold, reversalTolerance) {
         object : NestedScrollConnection {
             var pulled = 0f
 
             fun show() {
                 val p = pulled
+                feedback.update(p / pullThreshold, reversalTolerance)
                 pullScope.launch { pullVisual.snapTo(p) }
             }
 
@@ -270,9 +280,10 @@ private fun Feed(
 
             override suspend fun onPreFling(available: Velocity): Velocity {
                 val p = pulled
-                if (p <= 0f) return Velocity.Zero
+                if (p <= 0f) { feedback.cancel(); return Velocity.Zero }
                 pulled = 0f
-                if (p > pullThreshold && available.y > -500f) state.actions.expandNotifications()
+                if (feedback.armed && !feedback.cancelled && available.y > -500f) state.actions.expandNotifications()
+                feedback.cancel()
                 pullScope.launch { pullVisual.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)) }
                 return available
             }
@@ -333,11 +344,26 @@ private fun Feed(
     Column(
         modifier
             .onGloballyPositioned { state.viewportCoords = it }
+            .pointerInput(pull) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                    pull.pulled = 0f
+                    feedback.begin()
+                    try {
+                        do {
+                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        } while (event.changes.any { it.pressed })
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        feedback.cancel()
+                        throw cancelled
+                    }
+                }
+            }
             .nestedScroll(pull)
             // While something is dragged, the finger belongs to that.
             .verticalScroll(state.feedScroll, enabled = drag == null)
             .graphicsLayer {
-                // Rubber band: follows the finger, ever slower, ~40dp at the threshold.
+                // Rubber band: follows the finger, ever slower, ~18dp at the threshold.
                 val p = pullVisual.value
                 translationY = pullThreshold * 0.6f * (1f - exp(-p / pullThreshold))
             },
