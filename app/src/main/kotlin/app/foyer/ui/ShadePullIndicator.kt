@@ -1,14 +1,16 @@
 package app.foyer.ui
 
+import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
@@ -26,6 +28,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
 import kotlin.math.sin
@@ -98,8 +102,19 @@ internal fun ShadePullIndicator(feedback: ShadePullFeedback) {
     LaunchedEffect(feedback.cancelled, hidden) {
         if (feedback.cancelled && hidden) feedback.finishDismissal()
     }
-    val fill = MaterialTheme.colorScheme.primary
-    val ink = MaterialTheme.colorScheme.onPrimary
+    val systemColors = dynamicDarkColorScheme(LocalContext.current)
+    val dark = isSystemInDarkTheme()
+    // Android 16 changed Back from secondary/onSecondary to container/fixed roles.
+    val fill = if (Build.VERSION.SDK_INT >= 36) {
+        colorResource(if (dark) android.R.color.system_secondary_container_dark else android.R.color.system_secondary_fixed_dim)
+    } else {
+        if (dark) systemColors.onSecondary else systemColors.secondary
+    }
+    val ink = if (Build.VERSION.SDK_INT >= 36) {
+        colorResource(if (dark) android.R.color.system_on_secondary_container_dark else android.R.color.system_on_secondary_fixed)
+    } else {
+        colorResource(if (dark) android.R.color.system_accent1_100 else android.R.color.system_neutral1_900)
+    }
     Canvas(Modifier.fillMaxSize()) {
         if (alpha.value < .001f) return@Canvas
         val p = travel.value.coerceAtLeast(0f)
