@@ -34,7 +34,9 @@ import kotlinx.coroutines.withContext
 import java.text.Collator
 
 /** Icon as two bitmaps: the full-colour one and, when the app ships it, the monochrome layer for themed icons. */
-class Icon(val full: ImageBitmap, val mono: ImageBitmap?)
+class Icon(val full: ImageBitmap, val mono: ImageBitmap?) {
+    internal var dynamic: DynamicIcon? = null
+}
 
 class AppInfo(
     val key: AppKey,
@@ -223,7 +225,12 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
         val density = context.resources.displayMetrics.densityDpi
         val raw = info.getIcon(density)
         val drawable = if (isWork) context.packageManager.getUserBadgedIcon(raw, info.user) else raw
-        return render(drawable, monoOf(raw))
+        val fallback = render(drawable, monoOf(raw))
+        fallback.dynamic = DynamicIcon.load(context, info) { live ->
+            val badged = if (isWork) context.packageManager.getUserBadgedIcon(live, info.user) else live
+            render(badged, monoOf(live))
+        }
+        return fallback
     }
 
     private val shortcutIcons = LruCache<String, Icon>(256)
