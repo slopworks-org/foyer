@@ -300,6 +300,43 @@ object Edits {
         return l.copy(items = l.items.map { if (it.id == id) it.copy(x = x, y = y, dock = dock) else it })
     }
 
+    /** Reserve the destination, then relocate its occupants within the existing grid atomically. */
+    fun displace(l: HomeLayout, incoming: HomeItem): HomeLayout? {
+        if (incoming.dock && (incoming.content is WidgetContent || incoming.content is FolderContent)) return null
+        if (incoming.x < 0 || incoming.y < 0 || incoming.w < 1 || incoming.h < 1 ||
+            incoming.x + incoming.w > (if (incoming.dock) HomeLayout.DOCK_SLOTS else HomeLayout.COLUMNS)) return null
+        val others = l.items.filterNot { it.id == incoming.id }
+        val blocked = others.filter { it.dock == incoming.dock &&
+            it.overlaps(incoming.x, incoming.y, incoming.w, incoming.h) }
+            .sortedWith(compareByDescending<HomeItem> { it.w * it.h }.thenBy { it.id })
+        val rows = if (incoming.dock) 1 else maxOf(l.rows, incoming.y + incoming.h)
+        val reserved = l.copy(items = others.filterNot { it in blocked } + incoming)
+        val columns = if (incoming.dock) HomeLayout.DOCK_SLOTS else HomeLayout.COLUMNS
+        if (blocked.sumOf { it.w * it.h } > columns * rows - reserved.items
+                .filter { it.dock == incoming.dock }.sumOf { it.w * it.h }) return null
+        fun relocate(index: Int, current: HomeLayout): HomeLayout? {
+            if (index == blocked.size) return current
+            val item = blocked[index]
+            val destinations = (0..rows - item.h).flatMap { y -> (0..columns - item.w).map { x -> x to y } }
+                .sortedWith(compareBy<Pair<Int, Int>> { (x, y) ->
+                    (x - item.x) * (x - item.x) + (y - item.y) * (y - item.y)
+                }.thenBy { it.second }.thenBy { it.first })
+                .filter { (x, y) -> if (incoming.dock) current.dockSlotFree(x) else current.isFree(x, y, item.w, item.h) }
+            for ((x, y) in destinations) {
+                val next = current.copy(items = current.items + item.copy(x = x, y = y))
+                relocate(index + 1, next)?.let { return it }
+                // All remaining single-cell items share the same free cells.
+                if (item.w == 1 && item.h == 1) return null
+            }
+            return null
+        }
+        val result = relocate(0, reserved) ?: return null
+        val positions = result.items.associateBy { it.id }
+        return result.copy(items = l.items.map { positions.getValue(it.id) } +
+            listOfNotNull(incoming.takeUnless { candidate -> l.items.any { it.id == candidate.id } }),
+            nextId = maxOf(l.nextId, incoming.id + 1))
+    }
+
     fun resize(l: HomeLayout, id: Long, x: Int, y: Int, w: Int, h: Int): HomeLayout {
         if (l.items.find { it.id == id }?.content !is WidgetContent || !l.isFree(x, y, w, h, id)) return l
         return l.copy(items = l.items.map { if (it.id == id) it.copy(x = x, y = y, w = w, h = h) else it })
@@ -381,12 +418,10 @@ object Edits {
             return TransferResult(departure.layout, targetFolder, incoming.id, targetFolder,
                 destination.replacements + departure.replacements)
         }
-        if (source != null) {
-            if (dock && !l.dockSlotFree(x, source.id) || !dock && !l.isFree(x, y, 1, 1, source.id)) return null
-            return TransferResult(move(l, source.id, x, y, dock), source.id)
-        }
-        if (dock && !l.dockSlotFree(x) || !dock && !l.isFree(x, y, 1, 1)) return null
-        val added = add(l, AppContent(key), x, y, dock = dock)
+        val incoming = source?.copy(x = x, y = y, dock = dock)
+            ?: HomeItem(l.nextId, AppContent(key), x, y, dock = dock)
+        val added = displace(l, incoming) ?: return null
+        if (source != null) return TransferResult(added, source.id)
         val departure = if (sourceFolder == null) LayoutChange(added)
             else planFolderChange(added, sourceFolder, from!!.withoutEntry(entry!!.id)) ?: return null
         return TransferResult(departure.layout, l.nextId, replacements = departure.replacements)
