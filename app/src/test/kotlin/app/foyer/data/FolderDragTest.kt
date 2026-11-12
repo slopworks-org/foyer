@@ -95,9 +95,11 @@ class FolderDragTest {
         assertEquals(initial.items.map { Triple(it.id, it.x, it.y) }, moved.items.map { Triple(it.id, it.x, it.y) })
     }
 
-    @Test fun memberMovesOutToDesktopOrDockOnlyWhenFree() {
+    @Test fun memberMovesOutToDesktopOrDockAndDisplacesOccupants() {
         val initial = base(apps = listOf(key(1), key(99)))
-        assertSame(initial, Edits.transferApp(initial, key(1), sourceFolder = 1, x = 0, y = 0))
+        val displaced = Edits.transferApp(initial, key(1), sourceFolder = 1, x = 0, y = 0)
+        assertEquals(HomeItem(1, AppContent(key(99)), 1, 0), displaced.items.first())
+        assertEquals(HomeItem(2, AppContent(key(1)), 0, 0), displaced.items.last())
         for (dock in listOf(false, true)) {
             val moved = Edits.transferApp(initial, key(1), sourceFolder = 1, x = 3, y = 0, dock = dock)
             assertEquals(AppContent(key(99)), moved.items.first().content)

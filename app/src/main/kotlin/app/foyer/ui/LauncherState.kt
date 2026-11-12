@@ -851,31 +851,11 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: 0,
                 (t as? DropTarget.Feed)?.y ?: 0, t is DropTarget.Dock, sourceEntry = member?.entryId, incomingId = s.incomingId)
         }
-        val result = when (t) {
-            is DropTarget.Folder, is DropTarget.Merge -> null
-            is DropTarget.Feed -> {
-                if (l.isFree(t.x, t.y, s.w, s.h, ignore = placed?.id)) {
-                    if (placed != null) Edits.move(l, placed.id, t.x, t.y, dock = false) to placed.id
-                    else Edits.add(l, s.content, t.x, t.y) to l.nextId
-                } else {
-                    val other = l.feed.singleOrNull { it.id != placed?.id && it.overlaps(t.x, t.y, s.w, s.h) }
-                    if (placed != null && other != null && other.w == 1 && other.h == 1 && s.w == 1 && s.h == 1 &&
-                        (!placed.dock || other.content !is WidgetContent && other.content !is FolderContent)
-                    ) Edits.swap(l, placed, other) to placed.id else null
-                }
-            }
-            is DropTarget.Dock -> {
-                if (s.isWidget || s.content is FolderContent) return null
-                if (l.dockSlotFree(t.slot, ignore = placed?.id)) {
-                    if (placed != null) Edits.move(l, placed.id, t.slot, 0, dock = true) to placed.id
-                    else Edits.add(l, s.content, t.slot, 0, dock = true) to l.nextId
-                } else {
-                    val other = l.dock.firstOrNull { it.x == t.slot && it.id != placed?.id }
-                    if (placed != null && other != null && placed.w == 1 && placed.h == 1) Edits.swap(l, placed, other) to placed.id else null
-                }
-            }
-        }
-        return result?.let { TransferResult(it.first, it.second) }
+        val x = (t as? DropTarget.Feed)?.x ?: (t as? DropTarget.Dock)?.slot ?: return null
+        val y = (t as? DropTarget.Feed)?.y ?: 0
+        val incoming = placed?.copy(x = x, y = y, dock = t is DropTarget.Dock)
+            ?: HomeItem(l.nextId, s.content, x, y, s.w, s.h, t is DropTarget.Dock)
+        return Edits.displace(l, incoming)?.let { TransferResult(it, incoming.id) }
     }
 
     fun accessibleTransfer(key: app.foyer.data.AppKey, sourceItem: Long? = null, sourceFolder: Long? = null,

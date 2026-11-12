@@ -6,6 +6,8 @@ import android.view.RoundedCorner
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -379,13 +381,17 @@ private fun Feed(
         ) {
             for (item in layout.feed) {
                 androidx.compose.runtime.key(item.id) {
+                    val immediate = state.drag?.placedId == item.id || state.dropOrigins.containsKey(item.id)
+                    val motion = if (immediate) snap<Dp>() else spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                    val x by animateDpAsState(cellW * item.x, motion, label = "gridX")
+                    val y by animateDpAsState(cellH * item.y, motion, label = "gridY")
                     PlacedItem(
                         state = state,
                         item = item,
                         iconSize = iconSize,
                         showAppLabels = layout.settings.showAppLabels,
                         modifier = Modifier
-                            .offset(cellW * item.x, cellH * item.y)
+                            .offset { IntOffset(x.roundToPx(), y.roundToPx()) }
                             .size(cellW * item.w, cellH * item.h),
                     )
                 }
@@ -811,33 +817,29 @@ private fun Dock(
                     .background(colors.onSurfaceVariant.copy(alpha = 0.45f)),
             )
         }
-        Row(
+        BoxWithConstraints(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .onGloballyPositioned { state.dockCoords = it },
-            verticalAlignment = Alignment.CenterVertically,
         ) {
+            val slotWidth = maxWidth / HomeLayout.DOCK_SLOTS
             val s = state.drag
             val target = s?.let { state.targetFor(it) } as? DropTarget.Dock
-            val showTarget = target != null && state.plan(s, target) != null
-            for (slot in 0 until HomeLayout.DOCK_SLOTS) {
-                Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (showTarget && target.slot == slot) {
-                        Box(
-                            Modifier
-                                .size(iconSize + 8.dp)
-                                .clip(CircleShape)
-                                .background(colors.onSurface.copy(alpha = 0.10f))
-                                .border(1.5.dp, colors.onSurface.copy(alpha = 0.35f), CircleShape),
-                        )
-                    }
-                    val item = items.firstOrNull { it.x == slot }
-                    if (item != null) {
-                        androidx.compose.runtime.key(item.id) {
-                            PlacedItem(state, item, iconSize, modifier = Modifier.fillMaxSize())
-                        }
-                    }
+            if (target != null && state.plan(s, target) != null) {
+                Box(Modifier.offset(slotWidth * target.slot).size(slotWidth, maxHeight), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(iconSize + 8.dp).clip(CircleShape)
+                        .background(colors.onSurface.copy(alpha = 0.10f))
+                        .border(1.5.dp, colors.onSurface.copy(alpha = 0.35f), CircleShape))
+                }
+            }
+            for (item in items) {
+                androidx.compose.runtime.key(item.id) {
+                    val immediate = s?.placedId == item.id || state.dropOrigins.containsKey(item.id)
+                    val motion = if (immediate) snap<Dp>() else spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                    val x by animateDpAsState(slotWidth * item.x, motion, label = "dockX")
+                    PlacedItem(state, item, iconSize, modifier = Modifier
+                        .offset { IntOffset(x.roundToPx(), 0) }.size(slotWidth, maxHeight))
                 }
             }
         }
