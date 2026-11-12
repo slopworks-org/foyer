@@ -122,6 +122,9 @@ class DragSession(
     internal var mergeBounds = emptyMap<Long, androidx.compose.ui.geometry.Rect>()
     internal var folderTargets: Map<Long, androidx.compose.ui.geometry.Rect>? = null
     internal var folderSurfaces: Map<Long, androidx.compose.ui.geometry.Rect>? = null
+    internal var displacementTarget: DropTarget? = null
+    internal var displacementReady by mutableStateOf<DropTarget?>(null)
+    internal var displacementJob: kotlinx.coroutines.Job? = null
     internal var mergeScroll = 0
     var visualScale = 1f
     internal var pendingFolderDrop: FolderDropPreview? = null
@@ -572,6 +575,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     private fun stopGestureWork(session: DragSession?) {
         if (drag !== session && folderLanding?.source !== session) return
         validationJob?.cancel()
+        session?.displacementJob?.cancel()
+        session?.displacementReady = null
         hoverJob?.cancel()
         hoverFolder = null
         resetMerge()
@@ -620,6 +625,16 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             preview.phase = MergePhase.Preview
             preview.job = scope.launch {
                 preview.progress.animateTo(1f, androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            }
+        }
+        val target = targetFor(session)?.takeIf { !scrolling && (it is DropTarget.Feed || it is DropTarget.Dock) }
+        if (session.displacementTarget != target) {
+            session.displacementJob?.cancel()
+            session.displacementTarget = target
+            session.displacementReady = null
+            if (target != null) session.displacementJob = scope.launch {
+                kotlinx.coroutines.delay(350)
+                if (drag === session && !session.released) session.displacementReady = target
             }
         }
         val id = (targetFor(session) as? DropTarget.Folder)?.id
@@ -852,7 +867,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val session = drag ?: return emptyMap()
         if (folderLanding?.returning == true) return emptyMap()
         val target = targetFor(session)
-        if (target !is DropTarget.Feed && target !is DropTarget.Dock) return emptyMap()
+        if (target != session.displacementReady || target == null) return emptyMap()
         val proposed = plan(session, target)?.layout ?: return emptyMap()
         return proposed.items.filter { item -> item.id != session.placedId &&
             layout.items.any { it.id == item.id && it != item } }.associateBy { it.id }
