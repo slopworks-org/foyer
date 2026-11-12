@@ -119,6 +119,13 @@ class DragSession(
 ) {
     internal val incomingId = (source as? DragSource.Member)?.entryId ?: java.util.UUID.randomUUID().toString()
     internal var previewCache: Pair<Pair<HomeLayout, DropTarget.Folder>, FolderDropPreview?>? = null
+    internal var mergeBounds = emptyMap<Long, androidx.compose.ui.geometry.Rect>()
+    internal var folderTargets: Map<Long, androidx.compose.ui.geometry.Rect>? = null
+    internal var folderSurfaces: Map<Long, androidx.compose.ui.geometry.Rect>? = null
+    internal var displacementTarget: DropTarget? = null
+    internal var displacementReady by mutableStateOf<DropTarget?>(null)
+    internal var displacementJob: kotlinx.coroutines.Job? = null
+    internal var mergeScroll = 0
     var visualScale = 1f
     internal var pendingFolderDrop: FolderDropPreview? = null
     val origin = pointer + anchorOffset
@@ -568,12 +575,20 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     private fun stopGestureWork(session: DragSession?) {
         if (drag !== session && folderLanding?.source !== session) return
         validationJob?.cancel()
+        session?.displacementJob?.cancel()
+        session?.displacementReady = null
         hoverJob?.cancel()
         hoverFolder = null
         resetMerge()
     }
 
     fun startDrag(session: DragSession) {
+        session.mergeBounds = appIconBounds.filter { (id, _) ->
+            layout.feed.any { it.id == id && appIconMeasurements[id] == (it to feedScroll.value) }
+        }
+        session.folderTargets = folderBounds.toMap()
+        session.folderSurfaces = folderSurfaceBounds.toMap()
+        session.mergeScroll = feedScroll.value
         (session.source as? DragSource.Placed)?.let { folderCollapses.remove(it.item.id) }
         menu = null
         stopGestureWork(drag)
@@ -610,6 +625,16 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             preview.phase = MergePhase.Preview
             preview.job = scope.launch {
                 preview.progress.animateTo(1f, androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            }
+        }
+        val target = targetFor(session)?.takeIf { !scrolling && (it is DropTarget.Feed || it is DropTarget.Dock) }
+        if (session.displacementTarget != target) {
+            session.displacementJob?.cancel()
+            session.displacementTarget = target
+            session.displacementReady = null
+            if (target != null) session.displacementJob = scope.launch {
+                kotlinx.coroutines.delay(350)
+                if (drag === session && !session.released) session.displacementReady = target
             }
         }
         val id = (targetFor(session) as? DropTarget.Folder)?.id
@@ -653,7 +678,10 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val dock = dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()?.let { androidx.compose.ui.geometry.Rect(0f, it.top, viewport.right, viewport.bottom) }
         if (dropLayerAt(s.anchor, viewport, folderPanelBounds.takeIf { openFolder != null }, dock) != DropLayer.Feed) return emptyMap()
         return layout.feed.filter { it.id != s.placedId && it.content is AppContent }.mapNotNull { item ->
-            appIconBounds[item.id]?.takeIf { appIconMeasurements[item.id] == (item to feedScroll.value) }?.let { item.id to it }
+            // Merge intent follows the saved cells, not icons moving out of the way.
+            val bounds = s.mergeBounds[item.id]?.translate(Offset(0f, (s.mergeScroll - feedScroll.value).toFloat()))
+                ?: appIconBounds[item.id]?.takeIf { appIconMeasurements[item.id] == (item to feedScroll.value) }
+            bounds?.let { item.id to it }
         }.toMap()
     }
 
@@ -789,14 +817,15 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             mergeIntent.candidate?.let { id ->
                 return layout.items.find { it.id == id }?.let { DropTarget.Merge(it) }
             }
-            folderSurfaceBounds.entries.firstOrNull { (id, bounds) ->
+            val scrollOffset = Offset(0f, if (s.folderSurfaces == null) 0f else (s.mergeScroll - feedScroll.value).toFloat())
+            (s.folderSurfaces ?: folderSurfaceBounds).mapValues { (_, bounds) -> bounds.translate(scrollOffset) }.entries.firstOrNull { (id, bounds) ->
                 (layout.items.find { it.id == id }?.content as? FolderContent)?.large == true && bounds.contains(p)
             }?.let { (id, bounds) ->
                 // The outer gutter is a default add target; the inner grid addresses exact slots.
                 return if (bounds.deflate(folderInsetPx).contains(p))
                     DropTarget.Folder(id, largeFolderSlot(p, bounds, folderInsetPx)) else DropTarget.Folder(id)
             }
-            folderBounds.entries.firstOrNull { (id, bounds) -> id != s.placedId && bounds.contains(p) }?.let {
+            (s.folderTargets ?: folderBounds).mapValues { (_, bounds) -> bounds.translate(scrollOffset) }.entries.firstOrNull { (id, bounds) -> id != s.placedId && bounds.contains(p) }?.let {
                 return DropTarget.Folder(it.key)
             }
         }
@@ -831,6 +860,17 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         }
         s.previewCache = cacheKey to preview
         return preview
+    }
+
+    /** Presentation only: changing targets or cancelling never writes the proposed positions. */
+    fun displacementPreview(): Map<Long, HomeItem> {
+        val session = drag ?: return emptyMap()
+        if (folderLanding?.returning == true) return emptyMap()
+        val target = targetFor(session)
+        if (target != session.displacementReady || target == null) return emptyMap()
+        val proposed = plan(session, target)?.layout ?: return emptyMap()
+        return proposed.items.filter { item -> item.id != session.placedId &&
+            layout.items.any { it.id == item.id && it != item } }.associateBy { it.id }
     }
 
     /** The layout after dropping, plus the id of the item that landed; null if it cannot go there. */

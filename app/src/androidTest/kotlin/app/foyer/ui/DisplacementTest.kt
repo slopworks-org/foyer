@@ -15,7 +15,7 @@ import org.junit.Test
 class DisplacementTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun releaseDisplacesSmoothlyAndWidgetFailurePreservesLayout() {
+    @Test fun hoverPreviewsDisplacementReturnsAndCommitsOnlyOnRelease() {
         val graph = rule.activity.graph
         val saved = graph.layout.layout.value
         lateinit var state: LauncherState
@@ -44,11 +44,27 @@ class DisplacementTest {
                 val grid = state.gridCoords!!.localToRoot(Offset.Zero)
                 state.moveDrag(grid + Offset(state.cellW * 2.05f, state.cellH * 0.5f))
                 assertTrue(state.targetFor(state.drag!!) is DropTarget.Feed)
-                state.endDrag()
             }
-            rule.waitUntil(10_000) {
+            val savedPreview = graph.layout.layout.value
+            rule.mainClock.advanceTimeBy(160)
+            rule.runOnIdle {
+                assertTrue("passing over a cell does not displace", state.displacementPreview().isEmpty())
+                val grid = state.gridCoords!!.localToRoot(Offset.Zero)
+                state.moveDrag(grid + Offset(state.cellW * 4.5f, state.cellH * 1.5f))
+            }
+            val passedAt = android.os.SystemClock.uptimeMillis()
+            rule.waitUntil(2000) {
                 rule.mainClock.advanceTimeByFrame()
-                graph.layout.layout.value.items.first().x == 2
+                android.os.SystemClock.uptimeMillis() - passedAt >= 450
+            }
+            assertEquals(before.x, rule.runOnIdle { state.appIconBounds.getValue(2).center.x }, 1f)
+            rule.runOnIdle {
+                val grid = state.gridCoords!!.localToRoot(Offset.Zero)
+                state.moveDrag(grid + Offset(state.cellW * 2.05f, state.cellH * 0.5f))
+            }
+            rule.waitUntil(2000) {
+                rule.mainClock.advanceTimeByFrame()
+                state.displacementPreview().isNotEmpty()
             }
             rule.mainClock.advanceTimeBy(64)
             rule.waitForIdle()
@@ -59,6 +75,26 @@ class DisplacementTest {
             assertTrue("occupant starts moving left", during.x < before.x)
             assertTrue("occupant has an intermediate frame", during.x > after.x + 1f)
             assertEquals(before.x - state.cellW, after.x, 1f)
+            assertEquals(savedPreview, graph.layout.layout.value)
+            rule.runOnUiThread {
+                val grid = state.gridCoords!!.localToRoot(Offset.Zero)
+                state.moveDrag(grid + Offset(state.cellW * 4.5f, state.cellH * 1.5f))
+                assertTrue(state.displacementPreview().isEmpty())
+            }
+            rule.mainClock.advanceTimeBy(1500)
+            rule.waitForIdle()
+            assertEquals(before.x, rule.runOnIdle { state.appIconBounds.getValue(2).center.x }, 1f)
+            assertEquals(savedPreview, graph.layout.layout.value)
+            rule.runOnUiThread {
+                val grid = state.gridCoords!!.localToRoot(Offset.Zero)
+                state.moveDrag(grid + Offset(state.cellW * 2.05f, state.cellH * 0.5f))
+            }
+            rule.mainClock.advanceTimeBy(1500)
+            rule.runOnUiThread { state.endDrag() }
+            rule.waitUntil(10_000) {
+                rule.mainClock.advanceTimeByFrame()
+                graph.layout.layout.value.items.first().x == 2
+            }
             rule.mainClock.autoAdvance = true
             rule.runOnIdle {
                 val moving = HomeItem(1, WidgetContent(-1, "test"), 0, 2, 2, 2)
@@ -67,13 +103,33 @@ class DisplacementTest {
                 graph.layout.edit { HomeLayout(listOf(moving, other, icon), nextId = 4, seeded = true) }
             }
             rule.waitForIdle()
+            rule.mainClock.autoAdvance = false
             rule.runOnIdle {
                 val moving = graph.layout.layout.value.items.first()
                 val session = DragSession(DragSource.Placed(moving), null, Offset.Zero, Offset.Zero)
-                val result = state.plan(session, DropTarget.Feed(0, 0))!!
+                state.startDrag(session)
+                val grid = state.gridCoords!!.localToRoot(Offset.Zero)
+                state.moveDrag(grid)
+                assertTrue(state.displacementPreview().isEmpty())
+            }
+            rule.waitUntil(2000) {
+                rule.mainClock.advanceTimeByFrame()
+                state.displacementPreview().isNotEmpty()
+            }
+            rule.mainClock.advanceTimeBy(500)
+            rule.runOnIdle {
+                val grid = state.gridCoords!!.localToRoot(Offset.Zero)
+                val result = state.plan(state.drag!!, DropTarget.Feed(0, 0))!!
+                assertEquals(setOf(2L, 3L), state.displacementPreview().keys)
+                val snapshot = graph.layout.layout.value
+                state.moveDrag(grid + Offset(0f, state.cellH * 2))
+                assertTrue(state.displacementPreview().isEmpty())
+                state.cancelDrag()
+                assertEquals(snapshot, graph.layout.layout.value)
                 assertTrue(result.layout.items.drop(1).all { !it.overlaps(0, 0, 2, 2) })
                 graph.layout.edit { result.layout }
             }
+            rule.mainClock.autoAdvance = true
             rule.waitForIdle()
             rule.runOnIdle {
                 val widget = HomeItem(1, WidgetContent(-1, "test"), 0, 0, 2, 1)
