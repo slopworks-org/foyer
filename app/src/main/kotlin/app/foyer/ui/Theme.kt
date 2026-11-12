@@ -21,6 +21,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -35,7 +36,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import app.foyer.data.Icon
+import kotlinx.coroutines.delay
+import java.util.Calendar
 
 /** How text drawn straight on the wallpaper should look. */
 @Immutable
@@ -77,9 +83,10 @@ fun FoyerTheme(themedIcons: Boolean, content: @Composable () -> Unit) {
 
 @Composable
 fun AppIcon(icon: Icon?, size: Dp, modifier: Modifier = Modifier, themed: Boolean = LocalThemedIcons.current) {
-    val mono = icon?.mono
+    val current = if (icon?.dynamic != null) tickingIcon(icon) else icon
+    val mono = current?.mono
     when {
-        icon == null -> Box(modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
+        current == null -> Box(modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
         themed && mono != null -> {
             val dark = isSystemInDarkTheme()
             val c = MaterialTheme.colorScheme
@@ -93,6 +100,22 @@ fun AppIcon(icon: Icon?, size: Dp, modifier: Modifier = Modifier, themed: Boolea
                 )
             }
         }
-        else -> Image(icon.full, contentDescription = null, filterQuality = FilterQuality.High, modifier = modifier.size(size))
+        else -> Image(current.full, contentDescription = null, filterQuality = FilterQuality.High, modifier = modifier.size(size))
     }
+}
+
+@Composable
+private fun tickingIcon(icon: Icon): Icon {
+    val owner = LocalLifecycleOwner.current
+    val current by produceState(icon, icon, owner) {
+        val dynamic = requireNotNull(icon.dynamic)
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                // Broken or outdated package resources must never take down the launcher.
+                value = runCatching { dynamic.at(Calendar.getInstance()) }.getOrDefault(icon)
+                delay(dynamic.intervalMillis - System.currentTimeMillis().mod(dynamic.intervalMillis))
+            }
+        }
+    }
+    return current
 }
