@@ -6,6 +6,11 @@ import android.view.RoundedCorner
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateFloatAsState
@@ -379,17 +384,20 @@ private fun Feed(
                 .onGloballyPositioned { state.gridCoords = it }
                 .emptyAreaGestures(state),
         ) {
+            val preview = state.displacementPreview()
             for (item in layout.feed) {
                 androidx.compose.runtime.key(item.id) {
                     val immediate = state.drag?.placedId == item.id || state.dropOrigins.containsKey(item.id)
                     val motion = if (immediate) snap<Dp>() else spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
-                    val x by animateDpAsState(cellW * item.x, motion, label = "gridX")
-                    val y by animateDpAsState(cellH * item.y, motion, label = "gridY")
+                    val destination = preview[item.id] ?: item
+                    val x by animateDpAsState(cellW * destination.x, motion, label = "gridX")
+                    val y by animateDpAsState(cellH * destination.y, motion, label = "gridY")
                     PlacedItem(
                         state = state,
                         item = item,
                         iconSize = iconSize,
                         showAppLabels = layout.settings.showAppLabels,
+                        displaced = item.id in preview,
                         modifier = Modifier
                             .offset { IntOffset(x.roundToPx(), y.roundToPx()) }
                             .size(cellW * item.w, cellH * item.h),
@@ -440,7 +448,7 @@ private fun DropIndicator(state: LauncherState, cellW: Dp, cellH: Dp, iconSize: 
 
 /** An item in the feed or dock: handles gestures, hiding while dragged, and the spring after a drop. */
 @Composable
-fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier, showAppLabels: Boolean = false) {
+fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Modifier, showAppLabels: Boolean = false, displaced: Boolean = false) {
     var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var iconCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val springBack = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
@@ -463,9 +471,16 @@ fun PlacedItem(state: LauncherState, item: HomeItem, iconSize: Dp, modifier: Mod
     val dragged = drag != null && drag.placedId == item.id
 
     val content = item.content
+    val wobble = if (displaced && content !is WidgetContent) {
+        rememberInfiniteTransition(label = "displacementWobble").animateFloat(
+            initialValue = -1.4f, targetValue = 1.4f,
+            animationSpec = infiniteRepeatable(tween(140), RepeatMode.Reverse), label = "wobbleAngle",
+        )
+    } else null
     val baseModifier = modifier
         .onGloballyPositioned { coords = it }
         .graphicsLayer {
+            rotationZ = wobble?.value ?: 0f
             if (dragged && content is WidgetContent) {
                 // Widgets cannot be drawn twice, so they move in place instead of leaving a ghost.
                 state.feedScroll.value // re-run on scroll
@@ -833,13 +848,14 @@ private fun Dock(
                         .border(1.5.dp, colors.onSurface.copy(alpha = 0.35f), CircleShape))
                 }
             }
+            val preview = state.displacementPreview()
             for (item in items) {
                 androidx.compose.runtime.key(item.id) {
                     val immediate = s?.placedId == item.id || state.dropOrigins.containsKey(item.id)
                     val motion = if (immediate) snap<Dp>() else spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
-                    val x by animateDpAsState(slotWidth * item.x, motion, label = "dockX")
+                    val x by animateDpAsState(slotWidth * (preview[item.id] ?: item).x, motion, label = "dockX")
                     PlacedItem(state, item, iconSize, modifier = Modifier
-                        .offset { IntOffset(x.roundToPx(), 0) }.size(slotWidth, maxHeight))
+                        .offset { IntOffset(x.roundToPx(), 0) }.size(slotWidth, maxHeight), displaced = item.id in preview)
                 }
             }
         }
