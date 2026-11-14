@@ -485,7 +485,9 @@ private fun WidgetPreview(state: LauncherState, info: AppWidgetProviderInfo, onP
             }.getOrNull()
         }
     }
-    val span = remember(info) { widgetSpan(info, state.cellW, state.cellH) }
+    val span = remember(info, state.cellW, state.cellH, density) {
+        widgetSpan(info, state.cellW, state.cellH, context.resources.displayMetrics.density)
+    }
     Column(
         Modifier
             .width(168.dp)

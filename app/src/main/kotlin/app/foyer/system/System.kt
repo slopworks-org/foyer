@@ -206,20 +206,24 @@ class FoyerWidgetHostView(context: Context) : AppWidgetHostView(context) {
     }
 }
 
+const val WIDGET_INSET_DP = 8
+
 /** Widget size bounds in grid cells. */
 data class WidgetSpan(val w: Int, val h: Int, val minW: Int, val minH: Int, val maxW: Int, val maxH: Int, val resizeH: Boolean, val resizeV: Boolean)
 
-fun widgetSpan(info: AppWidgetProviderInfo, cellWidthPx: Float, cellHeightPx: Float): WidgetSpan {
-    fun cells(px: Int, cell: Float, max: Int) = ceil(px / cell).toInt().coerceIn(1, max)
+internal fun initialWidgetCells(target: Int, minPx: Int, cellPx: Float, insetPx: Float, max: Int): Int =
+    maxOf(target, ceil((minPx + insetPx * 2) / cellPx).toInt()).coerceIn(1, max)
+
+fun widgetSpan(info: AppWidgetProviderInfo, cellWidthPx: Float, cellHeightPx: Float, density: Float): WidgetSpan {
+    val insetPx = WIDGET_INSET_DP * density
+    fun cells(px: Int, cell: Float, max: Int) = initialWidgetCells(0, px, cell, insetPx, max)
     val cols = HomeLayout.COLUMNS
-    var w = if (info.targetCellWidth > 0) info.targetCellWidth.coerceIn(1, cols) else cells(info.minWidth, cellWidthPx, cols)
-    var h = if (info.targetCellHeight > 0) info.targetCellHeight.coerceAtLeast(1) else cells(info.minHeight, cellHeightPx, 20)
+    val w = initialWidgetCells(info.targetCellWidth, info.minWidth, cellWidthPx, insetPx, cols)
+    val h = initialWidgetCells(info.targetCellHeight, info.minHeight, cellHeightPx, insetPx, 20)
     val minW = if (info.minResizeWidth > 0) cells(info.minResizeWidth, cellWidthPx, cols) else w
     val minH = if (info.minResizeHeight > 0) cells(info.minResizeHeight, cellHeightPx, 20) else h
     val maxW = if (info.maxResizeWidth > 0) cells(info.maxResizeWidth, cellWidthPx, cols) else cols
     val maxH = if (info.maxResizeHeight > 0) cells(info.maxResizeHeight, cellHeightPx, 20) else 20
-    w = w.coerceIn(1, cols)
-    h = h.coerceAtLeast(1)
     return WidgetSpan(
         w, h, minOf(minW, w), minOf(minH, h), maxOf(maxW, w), maxOf(maxH, h),
         resizeH = info.resizeMode and AppWidgetProviderInfo.RESIZE_HORIZONTAL != 0,

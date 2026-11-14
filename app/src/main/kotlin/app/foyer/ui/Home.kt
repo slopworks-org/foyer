@@ -68,6 +68,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.RoundRect
@@ -111,6 +112,7 @@ import app.foyer.data.HomeLayout
 import app.foyer.data.ShortcutContent
 import app.foyer.data.WidgetContent
 import app.foyer.system.FoyerWidgetHostView
+import app.foyer.system.WIDGET_INSET_DP
 import app.foyer.system.widgetSpan
 import kotlin.math.exp
 import kotlin.math.roundToInt
@@ -120,7 +122,7 @@ import kotlin.math.roundToInt
 private const val SIDE_MARGIN = 0.028f
 private const val ICON_OF_CELL = 0.62f
 private const val ROW_OF_CELL = 1.43f
-private val WIDGET_INSET = 8.dp
+private val WIDGET_INSET = WIDGET_INSET_DP.dp
 
 /** Room around a selected widget's frame for its resize handles. */
 private val FRAME_MARGIN = 16.dp
@@ -596,7 +598,7 @@ fun ShortcutIcon(state: LauncherState, shortcut: app.foyer.data.ShortcutEntry?, 
 private fun WidgetTile(state: LauncherState, item: HomeItem, content: WidgetContent, modifier: Modifier) {
     val graph = state.graph
     val info = remember(content.widgetId) { graph.widgetManager.getAppWidgetInfo(content.widgetId) }
-    BoxWithConstraints(modifier.padding(WIDGET_INSET)) {
+    BoxWithConstraints(modifier.padding(WIDGET_INSET).clipToBounds()) {
         if (info == null) {
             Box(
                 Modifier
@@ -680,7 +682,8 @@ private fun rememberUpdatedItem(item: HomeItem): () -> HomeItem {
 private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: Dp) {
     val content = item.content as? WidgetContent ?: return
     val info = remember(content.widgetId) { state.graph.widgetManager.getAppWidgetInfo(content.widgetId) }
-    val span = remember(info, state.cellW, state.cellH) { info?.let { widgetSpan(it, state.cellW, state.cellH) } }
+    val density = LocalDensity.current.density
+    val span = remember(info, state.cellW, state.cellH, density) { info?.let { widgetSpan(it, state.cellW, state.cellH, density) } }
     // Pending resize, in cells, relative to the item.
     var dl by remember(item) { mutableStateOf(0f) }
     var dt by remember(item) { mutableStateOf(0f) }
