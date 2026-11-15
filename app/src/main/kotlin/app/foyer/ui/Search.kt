@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -63,6 +64,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -286,13 +288,13 @@ private fun ResultRow(state: LauncherState, hit: SearchHit, target: Target, best
     Row(
         Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .heightIn(min = 64.dp)
             .scale(scale)
             .clip(RoundedCornerShape(20.dp))
             .then(if (best) Modifier.background(colors.secondaryContainer) else Modifier)
             .itemGestures(callbacks) { pressed = it }
             .semantics { customActions = transfers }
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         when (target) {
@@ -305,7 +307,8 @@ private fun ResultRow(state: LauncherState, hit: SearchHit, target: Target, best
                 label,
                 color = if (best) colors.onSecondaryContainer else colors.onSurface,
                 fontSize = 16.sp,
-                maxLines = 1,
+                minLines = 2,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             val sub = when (target) {
@@ -329,10 +332,10 @@ private fun WebSearchRow(onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .heightIn(min = 64.dp)
             .clip(RoundedCornerShape(20.dp))
             .pointerInput(onClick) { detectTapGestures { onClick() } }
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(40.dp).clip(CircleShape).background(colors.surfaceContainerHighest), contentAlignment = Alignment.Center) {
@@ -347,7 +350,6 @@ private fun WebSearchRow(onClick: () -> Unit) {
 @Composable
 private fun AllApps(state: LauncherState, searchable: Searchable) {
     val apps = remember(searchable) { searchable.apps.values.sortedWith(compareBy(java.text.Collator.getInstance()) { it.label }) }
-    val density = LocalDensity.current
     LazyVerticalGrid(
         columns = GridCells.Fixed(5),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
@@ -356,13 +358,13 @@ private fun AllApps(state: LauncherState, searchable: Searchable) {
         items(apps, key = { it.key.toString() }) { app ->
             var pressed by remember { mutableStateOf(false) }
             val scale by animateFloatAsState(if (pressed) 0.9f else 1f, spring(0.55f, Spring.StiffnessMedium), label = "press")
-            val labelAdjust = with(density) { 11.dp.toPx() }
+            var iconCenter by remember { mutableStateOf<Offset?>(null) }
             val callbacks = remember(app) {
                 ItemGestureCallbacks(
                     onTap = { b -> state.actions.launchApp(app, b) },
                     onLongPress = { b -> state.showSearchMenu(AppContent(app.key), b) },
                     onDragStart = { pointer, b ->
-                        val c = Offset(b.center.x, b.center.y - labelAdjust)
+                        val c = iconCenter ?: b.center
                         state.startDrag(DragSession(DragSource.New(AppContent(app.key)), app.icon, c - pointer, pointer))
                     },
                     onDrag = state::moveDrag,
@@ -378,12 +380,16 @@ private fun AllApps(state: LauncherState, searchable: Searchable) {
                     .itemGestures(callbacks) { pressed = it },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                AppIcon(app.icon, 52.dp, Modifier.graphicsLayer { scaleX = scale; scaleY = scale })
+                AppIcon(app.icon, 52.dp, Modifier.onGloballyPositioned {
+                    iconCenter = it.localToRoot(Offset(it.size.width / 2f, it.size.height / 2f))
+                }.graphicsLayer { scaleX = scale; scaleY = scale })
                 Text(
                     app.label,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 12.sp,
-                    maxLines = 1,
+                    lineHeight = 16.sp,
+                    minLines = 2,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),

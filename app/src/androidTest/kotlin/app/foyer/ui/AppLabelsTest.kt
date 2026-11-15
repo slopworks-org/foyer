@@ -33,7 +33,7 @@ class AppLabelsTest {
                     Edits.add(Edits.add(Edits.add(Edits.add(HomeLayout(seeded = true), AppContent(app.key), 0, 1),
                         AppContent(app.key), 0, 0, dock = true),
                         ShortcutContent(app.key.pkg, "test-shortcut", app.key.user, "New event"), 1, 0, dock = true),
-                        ShortcutContent(app.key.pkg, "feed-shortcut", app.key.user, "Compose message"), 1, 1)
+                        ShortcutContent(app.key.pkg, "feed-shortcut", app.key.user, "Compose a message with a very long shortcut title"), 1, 1)
                 }
             }
             rule.activity.setContent {
@@ -67,9 +67,17 @@ class AppLabelsTest {
                 assertEquals(icon, state.menu!!.anchor)
                 state.menu = null
             }
-            val shortcut = rule.onNodeWithContentDescription("Compose message")
+            val shortcut = rule.onNodeWithContentDescription("Compose a message with a very long shortcut title")
             val shortcutCell = shortcut.fetchSemanticsNode().boundsInRoot
             val shortcutLabel = rule.onNodeWithTag("app-label-4").fetchSemanticsNode().boundsInRoot
+            assertEquals(label.height, shortcutLabel.height, 1f)
+            assertEquals(label.top, shortcutLabel.top, 1f)
+            val textLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            rule.onNodeWithTag("app-label-4").performSemanticsAction(
+                androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult,
+            ) { it(textLayouts) }
+            assertEquals(2, textLayouts.single().lineCount)
+            assertTrue(textLayouts.single().isLineEllipsized(1))
             shortcut.performTouchInput { longClick() }
             rule.runOnIdle {
                 assertEquals(shortcutCell.center.y, (state.menu!!.anchor.top + shortcutLabel.bottom) / 2f, 1f)
