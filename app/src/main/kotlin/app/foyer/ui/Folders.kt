@@ -345,7 +345,7 @@ internal fun FolderPanelContent(
         } else folder.entries
         val columns = folderColumns(order.size)
         val icon = ui.iconSize
-        val rowHeight = icon * 1.8f
+        val rowHeight = maxOf(icon * 1.8f, icon + 14.dp + with(density) { MaterialTheme.typography.labelSmall.lineHeight.toDp() } * 2)
         fun panelRect(count: Int): Rect {
             val cols = folderColumns(count)
             val rows = ceil(count.toFloat() / cols).toInt().coerceAtLeast(if (cols == 2) 2 else 1)
@@ -462,7 +462,8 @@ internal fun FolderPanelContent(
                                         } else labels
                                     })
                                 }
-                                Text(app?.label ?: key.app.pkg, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                Text(app?.label ?: key.app.pkg, color = MaterialTheme.colorScheme.onSurface, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
                                     style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.testTag("folder-label-$index").padding(top = 6.dp).graphicsLayer {
                                         val destination = end?.center ?: rect.center
