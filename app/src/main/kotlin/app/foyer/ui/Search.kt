@@ -307,8 +307,7 @@ private fun ResultRow(state: LauncherState, hit: SearchHit, target: Target, best
                 label,
                 color = if (best) colors.onSecondaryContainer else colors.onSurface,
                 fontSize = 16.sp,
-                minLines = 2,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             val sub = when (target) {
