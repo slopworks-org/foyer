@@ -319,7 +319,13 @@ private fun ResultRow(state: LauncherState, hit: SearchHit, target: Target, best
             }
         }
         if (best) {
-            Text("↵", color = colors.onSecondaryContainer, fontSize = 20.sp, modifier = Modifier.padding(start = 8.dp))
+            Spacer(Modifier.width(8.dp))
+            Box(
+                Modifier.size(34.dp).clip(CircleShape).background(colors.onSecondaryContainer.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(MenuIcons.ArrowForward, contentDescription = null, modifier = Modifier.size(20.dp), tint = colors.onSecondaryContainer)
+            }
         }
     }
 }
