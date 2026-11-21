@@ -298,6 +298,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     private var menuOwner: Long? = null
     var menu by mutableStateOf<MenuSpec?>(null)
     var selectedWidget by mutableStateOf<Long?>(null)
+    internal var draggingWidgetEdge by mutableStateOf<ResizeEdge?>(null)
     var widgetPickerAt by mutableStateOf<Pair<Int, Int>?>(null)
     var settingsOpen by mutableStateOf(false)
     var settingsSessionId by mutableStateOf(0)
@@ -305,8 +306,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var aliasEditor by mutableStateOf<AppInfo?>(null)
     var isDefaultHome by mutableStateOf(true)
 
-    /** Nothing open on top of the feed: no search, menu, picker or settings. */
-    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && widgetPickerAt == null && !settingsOpen && aliasEditor == null && openFolder == null
+    /** Only the bare feed reserves the full screen for home gestures. */
+    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && selectedWidget == null && widgetPickerAt == null && !settingsOpen && aliasEditor == null && openFolder == null
 
     // --- geometry, filled in by the UI ---
     val feedScroll = ScrollState(0)
@@ -780,6 +781,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         memberBounds.keys.removeAll { it.first !in ids }
         panelMemberBounds.keys.removeAll { it.first !in ids }
         folderMemberFrames.keys.removeAll { it.first !in ids }
+        if (selectedWidget != null && current.feed.none { it.id == selectedWidget }) selectedWidget = null
         if (menuOwner != null && current.items.none { it.id == menuOwner }) { menu = null; menuOwner = null }
     }
 

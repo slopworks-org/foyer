@@ -169,7 +169,10 @@ fun FolderTile(state: LauncherState, item: HomeItem, folder: FolderContent, icon
         state.folderSurfaceBounds.remove(item.id)
     } } }
     val callbacks = ItemGestureCallbacks(
-        onTap = { if (!folder.large) state.openFolder = item.id },
+        onTap = {
+            if (state.selectedWidget != null || state.menu != null) state.dismissOverlays()
+            else if (!folder.large) state.openFolder = item.id
+        },
         onLongPress = { state.showItemMenu(item, coordinates?.boundsInRoot() ?: it) },
         onDragStart = { pointer, bounds ->
             state.startDrag(DragSession(DragSource.Placed(item), null, (coordinates?.boundsInRoot() ?: bounds).center - pointer, pointer))
