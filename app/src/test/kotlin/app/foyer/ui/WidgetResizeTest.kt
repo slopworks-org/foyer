@@ -13,18 +13,19 @@ class WidgetResizeTest {
     private val span = WidgetSpan(2, 2, 2, 2, 4, 4, resizeH = true, resizeV = true)
 
     @Test fun minimumSizeAtGridBoundaryHidesOnlyTheBlockedEdges() {
-        assertEquals(0..0, ResizeEdge.Left.offsets(item, span))
-        assertEquals(0..0, ResizeEdge.Top.offsets(item, span))
-        assertEquals(0..2, ResizeEdge.Right.offsets(item, span))
-        assertEquals(0..2, ResizeEdge.Bottom.offsets(item, span))
-        assertEquals(0..0, ResizeEdge.Right.offsets(item.copy(x = 3), span))
-        assertEquals(-1..0, ResizeEdge.Top.offsets(item.copy(y = 1), span))
+        assertEquals(0..0, ResizeEdge.Left.offsets(item, span, 5))
+        assertEquals(0..0, ResizeEdge.Top.offsets(item, span, 5))
+        assertEquals(0..1, ResizeEdge.Right.offsets(item.copy(x = 1), span, 4))
+        assertEquals(0..2, ResizeEdge.Right.offsets(item, span, 5))
+        assertEquals(0..2, ResizeEdge.Bottom.offsets(item, span, 5))
+        assertEquals(0..0, ResizeEdge.Right.offsets(item.copy(x = 3), span, 5))
+        assertEquals(-1..0, ResizeEdge.Top.offsets(item.copy(y = 1), span, 5))
     }
 
     @Test fun shrinkingAtMaximumSizeKeepsTheOppositeEdgesFixed() {
         val large = item.copy(w = 4, h = 4)
         for (edge in ResizeEdge.entries) {
-            val offsets = edge.offsets(large, span)
+            val offsets = edge.offsets(large, span, 5)
             val leading = edge == ResizeEdge.Left || edge == ResizeEdge.Top
             assertEquals(if (leading) 0..2 else -2..0, offsets)
             val resized = edge.move(large, if (leading) 2 else -2)
@@ -37,10 +38,10 @@ class WidgetResizeTest {
 
     @Test fun providerLimitsRespectDisabledAxesAndExistingWidgetSizes() {
         val fixed = span.copy(resizeH = false, maxH = 2)
-        for (edge in ResizeEdge.entries) assertEquals(0..0, edge.offsets(item, fixed))
-        assertEquals(-3..0, ResizeEdge.Bottom.offsets(item.copy(h = 5), fixed))
-        assertEquals(0..3, ResizeEdge.Right.offsets(item.copy(w = 1), span))
-        assertEquals(0..0, ResizeEdge.Bottom.offsets(item, span.copy(resizeV = false)))
+        for (edge in ResizeEdge.entries) assertEquals(0..0, edge.offsets(item, fixed, 5))
+        assertEquals(-3..0, ResizeEdge.Bottom.offsets(item.copy(h = 5), fixed, 5))
+        assertEquals(0..3, ResizeEdge.Right.offsets(item.copy(w = 1), span, 5))
+        assertEquals(0..0, ResizeEdge.Bottom.offsets(item, span.copy(resizeV = false), 5))
     }
 
     @Test fun exclusionExtendsFromEachBezelOnlyAcrossTheHandleHeight() {

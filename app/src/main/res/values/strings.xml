@@ -30,6 +30,8 @@
     <string name="settings_default_home_title">Foyer isn’t your default home app</string>
     <string name="settings_default_home_summary">Choose Foyer to open your home screen when you swipe home.</string>
     <string name="settings_default_home_action">Set as default</string>
+    <string name="settings_medium_grid">Medium grid</string>
+    <string name="settings_grid_sizes">Medium uses 4 columns. Small uses 5.</string>
     <string name="settings_footer">Foyer · %1$d-column grid · works offline</string>
 
     <string name="widget_unavailable">Widget unavailable</string>

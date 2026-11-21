@@ -22,7 +22,6 @@ import android.view.ViewConfiguration
 import android.widget.Toast
 import app.foyer.R
 import app.foyer.data.AppInfo
-import app.foyer.data.HomeLayout
 import app.foyer.data.ShortcutEntry
 import kotlin.math.ceil
 import kotlin.math.hypot
@@ -214,10 +213,9 @@ data class WidgetSpan(val w: Int, val h: Int, val minW: Int, val minH: Int, val 
 internal fun initialWidgetCells(target: Int, minPx: Int, cellPx: Float, insetPx: Float, max: Int): Int =
     maxOf(target, ceil((minPx + insetPx * 2) / cellPx).toInt()).coerceIn(1, max)
 
-fun widgetSpan(info: AppWidgetProviderInfo, cellWidthPx: Float, cellHeightPx: Float, density: Float): WidgetSpan {
+fun widgetSpan(info: AppWidgetProviderInfo, cellWidthPx: Float, cellHeightPx: Float, density: Float, cols: Int): WidgetSpan {
     val insetPx = WIDGET_INSET_DP * density
     fun cells(px: Int, cell: Float, max: Int) = initialWidgetCells(0, px, cell, insetPx, max)
-    val cols = HomeLayout.COLUMNS
     val w = initialWidgetCells(info.targetCellWidth, info.minWidth, cellWidthPx, insetPx, cols)
     val h = initialWidgetCells(info.targetCellHeight, info.minHeight, cellHeightPx, insetPx, 20)
     val minW = if (info.minResizeWidth > 0) cells(info.minResizeWidth, cellWidthPx, cols) else w

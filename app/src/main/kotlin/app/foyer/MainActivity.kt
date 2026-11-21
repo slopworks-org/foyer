@@ -172,10 +172,10 @@ class MainActivity : ComponentActivity(), LauncherActions {
     private fun place(p: PendingWidget) {
         pending = null
         val (cw, ch) = graph.cellSizePx
-        val span = widgetSpan(p.info, cw, ch, resources.displayMetrics.density)
         graph.layout.edit { l ->
+            val span = widgetSpan(p.info, cw, ch, resources.displayMetrics.density, l.columns)
             // Where the user long-pressed, if it fits; otherwise the first spot that does.
-            val x = p.x.coerceAtMost(app.foyer.data.HomeLayout.COLUMNS - span.w)
+            val x = p.x.coerceAtMost(l.columns - span.w)
             val (fx, fy) = if (l.isFree(x, p.y, span.w, span.h)) x to p.y else l.firstFree(span.w, span.h, fromY = p.y)
             Edits.add(l, WidgetContent(p.id, p.info.provider.flattenToString()), fx, fy, span.w, span.h)
         }

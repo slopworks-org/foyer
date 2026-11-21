@@ -178,14 +178,14 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
     }
     BoxWithConstraints(modifier.fillMaxSize().then(selectionDismiss)) {
         val hPad = maxWidth * SIDE_MARGIN
-        val cellW: Dp = (maxWidth - hPad * 2) / HomeLayout.COLUMNS
+        val cellW: Dp = (maxWidth - hPad * 2) / layout.columns
         val cellH: Dp = cellW * ROW_OF_CELL
         with(density) {
             state.cellW = cellW.toPx()
             state.cellH = cellH.toPx()
             state.graph.cellSizePx = state.cellW to state.cellH
         }
-        val iconSize = cellW * ICON_OF_CELL
+        val iconSize = cellW * (if (layout.columns == 4) 0.56f else ICON_OF_CELL)
         state.iconSize = iconSize
         val dockHeight = DOCK_HANDLE + iconSize + DOCK_ICON_PAD * 2 + SEARCH_BAR_HEIGHT + SEARCH_BAR_BOTTOM
         val dockTotal = dockHeight + navBottom
@@ -238,6 +238,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
         Dock(
             state = state,
             items = layout.dock,
+            slots = layout.dockSlots,
             iconSize = iconSize,
             bottomCorners = displayBottomCorners(),
             // The search bar spans from the first icon's left edge to the last one's right edge.
@@ -447,7 +448,7 @@ private fun Modifier.emptyAreaGestures(state: LauncherState): Modifier {
                 onTap = { state.dismissOverlays() },
                 onLongPress = { pos ->
                     val lc = coords ?: return@detectTapGestures
-                    val x = (pos.x / state.cellW).toInt().coerceIn(0, HomeLayout.COLUMNS - 1)
+                    val x = (pos.x / state.cellW).toInt().coerceIn(0, state.layout.columns - 1)
                     val y = (pos.y / state.cellH).toInt()
                     // Items run their own long-press; the background only owns free cells.
                     if (state.graph.layout.layout.value.feed.any { it.covers(x, y) }) return@detectTapGestures
@@ -711,13 +712,14 @@ private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: 
     val content = item.content as? WidgetContent ?: return
     val info = remember(content.widgetId) { state.graph.widgetManager.getAppWidgetInfo(content.widgetId) }
     val density = LocalDensity.current.density
-    val span = remember(info, state.cellW, state.cellH, density) { info?.let { widgetSpan(it, state.cellW, state.cellH, density) } }
+    val layout by state.graph.layout.layout.collectAsState()
+    val span = remember(layout.columns, info, state.cellW, state.cellH, density) { info?.let { widgetSpan(it, state.cellW, state.cellH, density, layout.columns) } }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val activeEdge = state.draggingWidgetEdge
     var delta by remember(item) { mutableStateOf(0f) }
-    fun proposal(edge: ResizeEdge) = edge.move(item, delta.roundToInt().coerceIn(edge.offsets(item, span)))
+    fun proposal(edge: ResizeEdge) = edge.move(item, delta.roundToInt().coerceIn(edge.offsets(item, span, layout.columns)))
     val preview = activeEdge?.let(::proposal) ?: item
-    val layout by state.graph.layout.layout.collectAsState()
+
     val fits = layout.isFree(preview.x, preview.y, preview.w, preview.h, ignore = item.id)
     val accent = MaterialTheme.colorScheme.primary
     val frameColor = if (fits) accent else MaterialTheme.colorScheme.error
@@ -738,7 +740,7 @@ private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: 
         )
         if (!hidden) {
             for (edge in ResizeEdge.entries) {
-                val offsets = edge.offsets(item, span)
+                val offsets = edge.offsets(item, span, layout.columns)
                 if (offsets.first == offsets.last && edge != activeEdge) continue
                 androidx.compose.runtime.key(edge) {
                     val left = (edge == ResizeEdge.Left) != rtl
@@ -790,6 +792,7 @@ private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: 
 @Composable
 private fun Dock(
     state: LauncherState,
+    slots: Int,
     items: List<HomeItem>,
     iconSize: Dp,
     bottomCorners: Pair<Dp, Dp>,
@@ -848,7 +851,7 @@ private fun Dock(
                 .fillMaxWidth()
                 .onGloballyPositioned { state.dockCoords = it },
         ) {
-            val slotWidth = maxWidth / HomeLayout.DOCK_SLOTS
+            val slotWidth = maxWidth / slots
             val s = state.drag
             val target = s?.let { state.targetFor(it) } as? DropTarget.Dock
             if (target != null && state.plan(s, target) != null) {

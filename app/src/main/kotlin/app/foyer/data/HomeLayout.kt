@@ -130,6 +130,7 @@ data class Settings(
     val showAppLabels: Boolean = false,
     /** Null means the update-check question has not been answered. */
     val updateChecks: Boolean? = null,
+    val columns: Int = 5,
 )
 
 @Serializable
@@ -145,28 +146,27 @@ data class HomeLayout(
     val dock get() = items.filter { it.dock }
 
     fun isFree(x: Int, y: Int, w: Int, h: Int, ignore: Long? = null): Boolean {
-        if (x < 0 || y < 0 || x + w > COLUMNS) return false
+        if (w < 1 || h < 1 || x < 0 || y < 0 || x + w > columns) return false
         return feed.none { it.id != ignore && it.overlaps(x, y, w, h) }
     }
 
     fun dockSlotFree(slot: Int, ignore: Long? = null) =
-        slot in 0 until DOCK_SLOTS && dock.none { it.id != ignore && it.x == slot }
+        slot in 0 until dockSlots && dock.none { it.id != ignore && it.x == slot }
 
     /** First free area scanning rows top to bottom, then left to right. */
     fun firstFree(w: Int, h: Int, fromY: Int = 0): Pair<Int, Int> {
+        require(w in 1..columns && h > 0)
         var y = fromY
         while (true) {
-            for (x in 0..COLUMNS - w) if (isFree(x, y, w, h)) return x to y
+            for (x in 0..columns - w) if (isFree(x, y, w, h)) return x to y
             y++
         }
     }
 
     val rows get() = feed.maxOfOrNull { it.y + it.h } ?: 0
 
-    companion object {
-        const val COLUMNS = 5
-        const val DOCK_SLOTS = 5
-    }
+    val columns get() = if (settings.columns == 4) 4 else 5
+    val dockSlots get() = columns
 }
 
 class LayoutStore(context: Context, private val scope: CoroutineScope) {
@@ -245,6 +245,40 @@ data class TransferResult(val layout: HomeLayout, val landedId: Long,
 
 /** Pure edits on the layout, kept here so the UI only describes intent. */
 object Edits {
+    fun setColumns(layout: HomeLayout, columns: Int): HomeLayout {
+        require(columns == 4 || columns == 5)
+        val updated = layout.copy(settings = layout.settings.copy(columns = columns))
+        if (columns >= layout.columns) return updated
+
+        val (fixed, displaced) = layout.items.partition { it.x + it.w <= columns }
+        var placed = updated.copy(items = fixed)
+        for (item in displaced.sortedBy { it.dock }) {
+            val slot = if (item.dock) (columns - 1 downTo 0).firstOrNull { placed.dockSlotFree(it) } else null
+            val moved = if (slot != null) item.copy(x = slot) else {
+                val width = item.w.coerceAtMost(columns)
+                val anchor = item.x.coerceAtMost(columns - width)
+                var distance = 0
+                var position: Pair<Int, Int>? = null
+                while (position == null) {
+                    for (x in 0..columns - width) {
+                        val dy = distance - kotlin.math.abs(x - anchor)
+                        if (dy < 0) continue
+                        val y = listOf(item.y - dy, item.y + dy).firstOrNull { placed.isFree(x, it, width, item.h) }
+                        if (y != null) {
+                            position = x to y
+                            break
+                        }
+                    }
+                    distance++
+                }
+                item.copy(x = position.first, y = position.second, w = width, dock = false)
+            }
+            placed = placed.copy(items = placed.items + moved)
+        }
+        val byId = placed.items.associateBy { it.id }
+        return updated.copy(items = layout.items.map { byId.getValue(it.id) })
+    }
+
     private fun replacement(id: Long, folder: FolderContent) =
         folder.entries.singleOrNull()?.takeUnless { folder.large }?.let { FolderReplacement(id, it) }
 
@@ -304,14 +338,14 @@ object Edits {
     fun displace(l: HomeLayout, incoming: HomeItem): HomeLayout? {
         if (incoming.dock && (incoming.content is WidgetContent || incoming.content is FolderContent)) return null
         if (incoming.x < 0 || incoming.y < 0 || incoming.w < 1 || incoming.h < 1 ||
-            incoming.x + incoming.w > (if (incoming.dock) HomeLayout.DOCK_SLOTS else HomeLayout.COLUMNS)) return null
+            incoming.x + incoming.w > (if (incoming.dock) l.dockSlots else l.columns)) return null
         val others = l.items.filterNot { it.id == incoming.id }
         val blocked = others.filter { it.dock == incoming.dock &&
             it.overlaps(incoming.x, incoming.y, incoming.w, incoming.h) }
             .sortedWith(compareByDescending<HomeItem> { it.w * it.h }.thenBy { it.id })
         val rows = if (incoming.dock) 1 else maxOf(l.rows, incoming.y + incoming.h)
         val reserved = l.copy(items = others.filterNot { it in blocked } + incoming)
-        val columns = if (incoming.dock) HomeLayout.DOCK_SLOTS else HomeLayout.COLUMNS
+        val columns = if (incoming.dock) l.dockSlots else l.columns
         if (blocked.sumOf { it.w * it.h } > columns * rows - reserved.items
                 .filter { it.dock == incoming.dock }.sumOf { it.w * it.h }) return null
         fun relocate(index: Int, current: HomeLayout): HomeLayout? {
