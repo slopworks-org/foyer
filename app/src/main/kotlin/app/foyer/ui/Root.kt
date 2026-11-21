@@ -124,7 +124,9 @@ fun FoyerRoot(state: LauncherState) {
                         throw c
                     }
                 }
-                BackHandler(enabled = state.selectedWidget != null && state.menu == null) { state.selectedWidget = null }
+                BackHandler(enabled = state.selectedWidget != null && state.menu == null) {
+                    if (state.draggingWidgetEdge == null) state.selectedWidget = null
+                }
 
                 SystemBarsAppearance(state)
 

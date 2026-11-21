@@ -142,7 +142,13 @@ fun MenuOverlay(state: LauncherState) {
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .pointerInput(spec) { detectTapGestures { state.menu = null } },
+            // For a selected widget, let touches outside the menu pass through to the resize
+            // handles and frame underneath instead of requiring an extra dismiss tap first.
+            .then(
+                if (state.selectedWidget == null) {
+                    Modifier.pointerInput(spec) { detectTapGestures { state.menu = null } }
+                } else Modifier,
+            ),
     ) {
         val screenW = with(density) { maxWidth.toPx() }
         val screenH = with(density) { maxHeight.toPx() }
