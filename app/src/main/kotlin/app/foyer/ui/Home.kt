@@ -166,6 +166,11 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
     val gesture = remember(hapticView, threshold, tolerance) {
         FeedPullGesture(threshold, tolerance) { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM) }
     }
+    val pullVisual = remember { Animatable(0f) }
+    val dockLiftPx: () -> Float = {
+        val p = pullVisual.value
+        if (p < 0f) threshold * 0.25f * (1f - exp(p / threshold)) * (1f - state.searchProgress.value) else 0f
+    }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     // Catch outside touches before a widget host or the dock can act on them.
@@ -205,6 +210,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
         Feed(
             state = state,
             gesture = gesture,
+            pullVisual = pullVisual,
             layout = layout,
             cellW = cellW,
             cellH = cellH,
@@ -240,7 +246,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
 
         FeedPullIndicator(gesture.shade, PullEdge.Top)
         val dockAtRest by remember(state) { derivedStateOf { state.searchProgress.value == 0f } }
-        if (dockAtRest) FeedPullIndicator(gesture.search, PullEdge.Bottom, dockTotal)
+        if (dockAtRest) FeedPullIndicator(gesture.search, PullEdge.Bottom, dockTotal, dockLiftPx)
 
         Dock(
             state = state,
@@ -252,6 +258,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
             searchInset = ((cellW - iconSize) / 2).also { state.searchBarInset = hPad + it },
             // Edge to edge and down under the navigation bar; icons stay on the feed's columns.
             contentPadding = PaddingValues(start = hPad, end = hPad, bottom = navBottom),
+            pullLiftPx = dockLiftPx,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -264,6 +271,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
 private fun Feed(
     state: LauncherState,
     gesture: FeedPullGesture,
+    pullVisual: Animatable<Float, *>,
     layout: HomeLayout,
     cellW: Dp,
     cellH: Dp,
@@ -276,7 +284,6 @@ private fun Feed(
 ) {
     val density = LocalDensity.current
     val pullScope = rememberCoroutineScope()
-    val pullVisual = remember { Animatable(0f) }
     val pull = remember(state, gesture) {
         object : NestedScrollConnection {
             val searchEnabled get() = state.drag == null && state.isHomeIdle
@@ -800,6 +807,7 @@ private fun Dock(
     bottomCorners: Pair<Dp, Dp>,
     searchInset: Dp,
     contentPadding: PaddingValues,
+    pullLiftPx: () -> Float,
     modifier: Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -814,11 +822,11 @@ private fun Dock(
             // LauncherState.searchEdge): up and off the top as search opens, and resting on
             // the search keyboard while search owns focus or is transitioning. Folder rename
             // leaves the home dock at rest behind the IME.
-            .graphicsLayer { translationY = state.searchEdge(state.searchProgress.value, lift()) - state.dockRowBottomPx }
+            .graphicsLayer { translationY = state.searchEdge(state.searchProgress.value, lift()) - state.dockRowBottomPx - pullLiftPx() }
             .onGloballyPositioned { state.dockSurfaceCoords = it }
             // Its card becomes the background of search, reaching down to the screen bottom.
             .drawBehind {
-                val shift = state.dockRowBottomPx - state.searchEdge(state.searchProgress.value, lift())
+                val shift = state.dockRowBottomPx - state.searchEdge(state.searchProgress.value, lift()) + pullLiftPx()
                 val rt = CornerRadius(DOCK_CORNER.toPx())
                 val bl = CornerRadius(bottomCorners.first.toPx())
                 val br = CornerRadius(bottomCorners.second.toPx())

@@ -151,7 +151,12 @@ internal class FeedPullGesture(val threshold: Float, private val tolerance: Floa
 }
 
 @Composable
-internal fun FeedPullIndicator(feedback: FeedPullFeedback, edge: PullEdge, dockHeight: Dp = 0.dp) {
+internal fun FeedPullIndicator(
+    feedback: FeedPullFeedback,
+    edge: PullEdge,
+    dockHeight: Dp = 0.dp,
+    dockLiftPx: () -> Float = { 0f },
+) {
     val density = LocalDensity.current
     val safeTop = WindowInsets.safeDrawing.getTop(density).toFloat()
     val safeLeft = WindowInsets.safeDrawing.getLeft(density, androidx.compose.ui.platform.LocalLayoutDirection.current)
@@ -195,7 +200,7 @@ internal fun FeedPullIndicator(feedback: FeedPullFeedback, edge: PullEdge, dockH
         val cy = if (edge == PullEdge.Top) safeTop + side / 2 + clearance else {
             // Start fully behind the dock, reaching the same clearance as the top pill at p = 1.
             val tucked = (side + 8.dp.toPx()) * (1f - p).coerceAtLeast(0f)
-            size.height - dockHeight.toPx() - side / 2 - clearance + tucked
+            size.height - dockHeight.toPx() - dockLiftPx() - side / 2 - clearance + tucked
         }
         val radius = side * (.2f + .3f * m)
         drawRoundRect(fill, Offset(cx - width / 2, cy - side / 2), Size(width, side),
