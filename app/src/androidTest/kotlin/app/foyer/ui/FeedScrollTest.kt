@@ -11,6 +11,7 @@ import app.foyer.data.AppContent
 import app.foyer.data.Edits
 import app.foyer.data.HomeLayout
 import app.foyer.graph
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -24,23 +25,35 @@ class FeedScrollTest {
         lateinit var state: LauncherState
         rule.waitUntil(10_000) { graph.apps.apps.value.isNotEmpty() }
         val app = graph.apps.apps.value.first()
+        var shadeRequests = 0
+        val actions = object : LauncherActions by rule.activity {
+            override fun expandNotifications() { shadeRequests++ }
+        }
         try {
             rule.runOnIdle { graph.layout.edit { HomeLayout(seeded = true) } }
             rule.activity.setContent {
                 val scope = rememberCoroutineScope()
-                state = remember { LauncherState(graph, scope, rule.activity) }
+                state = remember { LauncherState(graph, scope, actions) }
                 FoyerRoot(state)
             }
             rule.waitForIdle()
             val feed = rule.onNode(hasScrollAction() and SemanticsMatcher.keyNotDefined(SemanticsActions.ScrollToIndex))
+            fun pullToSearch() {
+                feed.performTouchInput { swipeUp(startY = height * .6f, endY = height * .2f) }
+                rule.waitUntil { state.searchOpen }
+                rule.runOnIdle { state.closeSearch(animated = false) }
+                rule.waitForIdle()
+            }
             fun assertNoScroll() {
                 rule.runOnIdle {
                     assertEquals(0, state.feedScroll.maxValue)
                     assertEquals(0, state.feedScroll.value)
                 }
-                feed.performTouchInput { swipeUp(startY = height * .6f, endY = height * .2f) }
+                pullToSearch()
                 rule.runOnIdle { assertEquals(0, state.feedScroll.value) }
             }
+            feed.performTouchInput { swipeDown(startY = height * .2f, endY = height * .6f) }
+            rule.runOnIdle { assertEquals(1, shadeRequests) }
             assertNoScroll()
             rule.runOnIdle {
                 graph.layout.edit { Edits.add(it, AppContent(app.key), 0, 0) }
@@ -48,13 +61,18 @@ class FeedScrollTest {
             rule.waitForIdle()
             assertNoScroll()
             rule.runOnIdle {
-                val row = (state.viewportCoords!!.size.height / state.cellH).toInt() + 1
+                val row = (state.viewportCoords!!.size.height / state.cellH).toInt() * 6
                 graph.layout.edit { Edits.add(it, AppContent(app.key), 0, row) }
             }
             rule.waitForIdle()
             rule.runOnIdle { assertTrue(state.feedScroll.maxValue > 0) }
             feed.performTouchInput { swipeUp(startY = height * .6f, endY = height * .2f) }
-            rule.runOnIdle { assertTrue(state.feedScroll.value > 0) }
+            rule.runOnIdle {
+                assertTrue(state.feedScroll.value > 0)
+                assertFalse(state.searchOpen)
+                runBlocking { state.feedScroll.scrollTo(state.feedScroll.maxValue) }
+            }
+            pullToSearch()
             rule.runOnIdle {
                 graph.layout.edit { HomeLayout(seeded = true) }
             }
