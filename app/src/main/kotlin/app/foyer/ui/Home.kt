@@ -90,7 +90,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -163,7 +163,20 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
     }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    // Catch outside touches before a widget host or the dock can act on them.
+    val selectionDismiss = Modifier.pointerInput(state) {
+        awaitEachGesture {
+            val down = awaitFirstDown(pass = PointerEventPass.Initial)
+            val selected = state.selectedFolder ?: return@awaitEachGesture
+            val cell = state.folderBounds[selected]
+            val dock = state.dockSurfaceCoords?.takeIf { it.isAttached }?.boundsInRoot()
+            if (cell?.contains(down.position) != true || dock?.contains(down.position) == true) {
+                down.consume()
+                state.dismissOverlays()
+            }
+        }
+    }
+    BoxWithConstraints(modifier.fillMaxSize().then(selectionDismiss)) {
         val hPad = maxWidth * SIDE_MARGIN
         val cellW: Dp = (maxWidth - hPad * 2) / HomeLayout.COLUMNS
         val cellH: Dp = cellW * ROW_OF_CELL
@@ -305,10 +318,11 @@ private fun Feed(
     }
 
     val drag = state.drag
-    // Scrolling away lets go of a selected widget and its menu, like Pixel Launcher.
+    // Scrolling away dismisses the selection and its menu.
     LaunchedEffect(state.feedScroll.isScrollInProgress) {
         if (state.feedScroll.isScrollInProgress) {
             state.selectedWidget = null
+            state.selectedFolder = null
             state.menu = null
         }
     }
@@ -423,7 +437,7 @@ private fun Feed(
     }
 }
 
-/** Long-press on an empty cell opens the home menu; a tap anywhere empty dismisses widget selection. */
+/** Long-press on an empty cell opens the home menu; a tap anywhere empty dismisses item selection. */
 private fun Modifier.emptyAreaGestures(state: LauncherState): Modifier {
     var coords: LayoutCoordinates? = null
     return this
@@ -531,7 +545,7 @@ private fun IconTile(state: LauncherState, item: HomeItem, iconSize: Dp, modifie
     val callbacks = remember(item) {
         ItemGestureCallbacks(
             onTap = { bounds ->
-                if (state.selectedWidget != null || state.menu != null) state.dismissOverlays()
+                if (state.hasItemSelection || state.menu != null) state.dismissOverlays()
                 else state.launch(item.content, bounds)
             },
             onLongPress = { bounds -> state.showItemMenu(item, iconCoords?.takeIf { it.isAttached }?.boundsInRoot() ?: bounds) },
@@ -701,7 +715,6 @@ private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: 
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val activeEdge = state.draggingWidgetEdge
     var delta by remember(item) { mutableStateOf(0f) }
-    var frameCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     fun proposal(edge: ResizeEdge) = edge.move(item, delta.roundToInt().coerceIn(edge.offsets(item, span)))
     val preview = activeEdge?.let(::proposal) ?: item
     val layout by state.graph.layout.layout.collectAsState()
@@ -721,56 +734,7 @@ private fun WidgetFrame(state: LauncherState, item: HomeItem, cellW: Dp, cellH: 
                 .padding(FRAME_MARGIN)
                 .fillMaxSize()
                 .border(2.dp, frameColor, RoundedCornerShape(26.dp))
-                .onGloballyPositioned { frameCoords = it }
-                // Once selected, dragging the widget moves it immediately; a tap dismisses selection.
-                .pointerInput(item) {
-                    val slop = viewConfiguration.touchSlop
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = true)
-                        var dragging = false
-                        var released = false
-                        val tracker = ReleaseVelocity()
-                        try {
-                            while (true) {
-                                val ev = awaitPointerEvent()
-                                val c = ev.changes.firstOrNull { it.id == down.id } ?: break
-                                val wasConsumed = c.isConsumed
-                                val now = frameCoords ?: break
-                                val position = now.localToRoot(c.position)
-                                for (sample in c.historical) tracker.add(sample.uptimeMillis, now.localToRoot(sample.position))
-                                tracker.add(c.uptimeMillis, position)
-                                if (!c.pressed) {
-                                    if (dragging) {
-                                        c.consume()
-                                        state.moveDrag(position)
-                                        released = c.changedToUpIgnoreConsumed() && !wasConsumed
-                                    } else if (!wasConsumed && c.changedToUpIgnoreConsumed()) {
-                                        c.consume()
-                                        state.dismissOverlays()
-                                    }
-                                    break
-                                }
-                                if (wasConsumed) break
-                                if (!dragging && (c.position - down.position).getDistance() > slop) {
-                                    dragging = true
-                                    c.consume()
-                                    val start = now.localToRoot(down.position)
-                                    state.startDrag(DragSession(DragSource.Placed(item), null, widgetTopLeft(state, item) - start, start))
-                                }
-                                if (dragging) {
-                                    c.consume()
-                                    state.moveDrag(position)
-                                }
-                            }
-                            if (dragging) {
-                                dragging = false
-                                if (released) state.endDrag(tracker.velocity()) else state.cancelDrag()
-                            }
-                        } finally {
-                            if (dragging) state.cancelDrag()
-                        }
-                    }
-                },
+                .selectedItemGestures(state, item) { widgetTopLeft(state, item) },
         )
         if (!hidden) {
             for (edge in ResizeEdge.entries) {
@@ -857,7 +821,7 @@ private fun Dock(
                 drawPath(Path().apply { addRoundRect(card) }, colors.surfaceContainer)
             }
             .verticalSwipe(
-                enabled = { state.drag == null && state.menu == null && state.selectedWidget == null && !state.searchOpen },
+                enabled = { state.drag == null && state.menu == null && !state.hasItemSelection && !state.searchOpen },
                 direction = -1,
                 onStart = {
                     state.beginSearchDrag(opening = true)

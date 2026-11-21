@@ -68,6 +68,19 @@ class MenuSpec(
     val onIcon: Boolean = false,
 )
 
+/** Resolve the physical anchor once for both touch and accessibility menus. */
+internal fun itemMenuSpec(
+    content: Content,
+    anchor: androidx.compose.ui.geometry.Rect,
+    folderSurface: androidx.compose.ui.geometry.Rect?,
+    shortcuts: List<ShortcutEntry>,
+    actions: List<MenuAction>,
+): MenuSpec {
+    val largeFolder = content is FolderContent && content.large
+    return MenuSpec(if (largeFolder) folderSurface ?: anchor else anchor, shortcuts, actions,
+        onIcon = content !is WidgetContent && !largeFolder)
+}
+
 sealed interface DragSource {
     data class Placed(val item: HomeItem) : DragSource
     data class Member(val folderId: Long, val key: app.foyer.data.AppKey, val entryId: String) : DragSource
@@ -298,6 +311,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     private var menuOwner: Long? = null
     var menu by mutableStateOf<MenuSpec?>(null)
     var selectedWidget by mutableStateOf<Long?>(null)
+    var selectedFolder by mutableStateOf<Long?>(null)
+    val hasItemSelection get() = selectedWidget != null || selectedFolder != null
     internal var draggingWidgetEdge by mutableStateOf<ResizeEdge?>(null)
     var widgetPickerAt by mutableStateOf<Pair<Int, Int>?>(null)
     var settingsOpen by mutableStateOf(false)
@@ -307,7 +322,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     var isDefaultHome by mutableStateOf(true)
 
     /** Only the bare feed reserves the full screen for home gestures. */
-    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && selectedWidget == null && widgetPickerAt == null && !settingsOpen && aliasEditor == null && openFolder == null
+    val isHomeIdle get() = searchProgress.value == 0f && !searchActive && menu == null && !hasItemSelection && widgetPickerAt == null && !settingsOpen && aliasEditor == null && openFolder == null
 
     // --- geometry, filled in by the UI ---
     val feedScroll = ScrollState(0)
@@ -416,13 +431,14 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         if (openFolder != null) { keyboard?.hide(); focusManager?.clearFocus() }
         menu = null
         selectedWidget = null
+        selectedFolder = null
         openFolder = null
     }
 
     /** Home button while already home: peel off one layer; with nothing open, go back to the top. */
     fun onHomePressed(wasVisible: Boolean) {
         cancelDrag()
-        val hadOverlay = openFolder != null || menu != null || selectedWidget != null || widgetPickerAt != null || settingsOpen || searchOpen || aliasEditor != null
+        val hadOverlay = openFolder != null || menu != null || hasItemSelection || widgetPickerAt != null || settingsOpen || searchOpen || aliasEditor != null
         dismissOverlays()
         aliasEditor = null
         widgetPickerAt = null
@@ -491,7 +507,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             if (app != null && item.content is AppContent) uninstallAction(app)?.let(::add)
         }
         val shortcuts = if (app != null && item.content is AppContent) graph.apps.shortcutsOf(app) else emptyList()
-        menu = MenuSpec(anchor, shortcuts, actionsList, onIcon = item.content !is WidgetContent)
+        menu = itemMenuSpec(item.content, anchor, folderSurfaceBounds[item.id], shortcuts, actionsList)
     }
 
     fun showMemberMenu(folderId: Long, entry: app.foyer.data.FolderEntry, anchor: androidx.compose.ui.geometry.Rect) {
@@ -509,8 +525,14 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 }
             })
             if (app != null) uninstallAction(app)?.let(::add)
-            val item = layout.items.find { it.id == folderId }
-            if ((item?.content as? FolderContent)?.let { it.large && it.entries.size >= 2 } == true) {
+            val folder = layout.items.find { it.id == folderId }?.content as? FolderContent
+            if (folder?.large == true) {
+                add(MenuAction(R.string.folder_move, MenuIcons.OpenWith) {
+                    dismissOverlays()
+                    selectedFolder = folderId
+                })
+            }
+            if (folder?.large == true && folder.entries.size >= 2) {
                 add(MenuAction(R.string.folder_shrink, MenuIcons.Edit) {
                     graph.layout.editChange { current ->
                         val folder = current.items.find { it.id == folderId }?.content as? FolderContent
@@ -584,6 +606,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     }
 
     fun startDrag(session: DragSession) {
+        selectedFolder = null
         session.mergeBounds = appIconBounds.filter { (id, _) ->
             layout.feed.any { it.id == id && appIconMeasurements[id] == (it to feedScroll.value) }
         }
@@ -782,6 +805,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         panelMemberBounds.keys.removeAll { it.first !in ids }
         folderMemberFrames.keys.removeAll { it.first !in ids }
         if (selectedWidget != null && current.feed.none { it.id == selectedWidget }) selectedWidget = null
+        if (selectedFolder != null && current.feed.none { it.id == selectedFolder && it.content is FolderContent && it.content.large }) selectedFolder = null
         if (menuOwner != null && current.items.none { it.id == menuOwner }) { menu = null; menuOwner = null }
     }
 

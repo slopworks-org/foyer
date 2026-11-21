@@ -42,6 +42,7 @@
     <string name="folder_collision">Недостаточно места. Для большой папки нужна свободная область 2 × 2.</string>
     <string name="folder_move_failed">Здесь нельзя разместить папку.</string>
     <string name="folder_enlarge">Увеличить папку</string>
+    <string name="folder_move">Переместить папку</string>
     <string name="folder_shrink">Уменьшить папку</string>
     <string name="folder_drop_failed">Не удалось переместить приложение. Проверьте, что в папке есть свободное место и приложение доступно.</string>
     <string name="folder_earlier">Переместить раньше</string>

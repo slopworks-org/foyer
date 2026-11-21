@@ -18,6 +18,7 @@ object MenuIcons {
     val ArrowBack = icon("M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20z")
     val ArrowForward = icon("M12,4l-1.41,1.41L16.17,11H4v2h12.17l-5.58,5.59L12,20l8,-8z")
     val ChevronRight = icon("M9.29,6.71L14.59,12l-5.3,5.29 1.42,1.42L17.41,12l-6.7,-6.71z")
+    val OpenWith = icon("M12,2l4,4h-3v5h5V8l4,4-4,4v-3h-5v5h3l-4,4-4,-4h3v-5H6v3l-4,-4 4,-4v3h5V6H8z")
     val Close = icon("M19,6.41L17.59,5 12,10.59 6.41,5 5,6.41 10.59,12 5,17.59 6.41,19 12,13.41 17.59,19 19,17.59 13.41,12z")
     val Delete = icon("M16,9v10H8V9h8m-1.5,-6h-5l-1,1H5v2h14V4h-3.5l-1,-1zM18,7H6v12c0,1.1 0.9,2 2,2h8c1.1,0 2,-0.9 2,-2V7z")
     val Search = icon(
