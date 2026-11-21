@@ -145,7 +145,7 @@ fun MenuOverlay(state: LauncherState) {
             // For a selected widget, let touches outside the menu pass through to the resize
             // handles and frame underneath instead of requiring an extra dismiss tap first.
             .then(
-                if (state.selectedWidget == null) {
+                if (!state.hasItemSelection) {
                     Modifier.pointerInput(spec) { detectTapGestures { state.menu = null } }
                 } else Modifier,
             ),

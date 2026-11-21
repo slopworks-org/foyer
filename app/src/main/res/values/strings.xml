@@ -44,6 +44,7 @@
     <string name="folder_collision">Not enough free space. Large folders need a free 2 × 2 area.</string>
     <string name="folder_move_failed">Folder cannot be placed here.</string>
     <string name="folder_enlarge">Enlarge folder</string>
+    <string name="folder_move">Move folder</string>
     <string name="folder_shrink">Shrink folder</string>
     <string name="folder_drop_failed">Cannot move this app here. Check that the folder has a free space and the app is still available.</string>
     <string name="folder_earlier">Move earlier</string>

@@ -3,6 +3,7 @@ package app.foyer.ui
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +22,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
+import app.foyer.data.HomeItem
 
 /** Callbacks for something you can tap, long-press for a menu, and then drag away. */
 class ItemGestureCallbacks(
@@ -112,6 +114,65 @@ fun Modifier.itemGestures(
                             if (dragging) cb.onDragCancel()
                         }
                     }
+                }
+            }
+        }
+}
+
+/** A selected item follows the first drag past touch slop. A tap exits selection. */
+@Composable
+internal fun Modifier.selectedItemGestures(
+    state: LauncherState,
+    item: HomeItem,
+    anchor: (LayoutCoordinates) -> Offset,
+): Modifier {
+    var frameCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    return this.onGloballyPositioned { frameCoords = it }
+        .pointerInput(item) {
+            val slop = viewConfiguration.touchSlop
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = true)
+                var dragging = false
+                var released = false
+                val tracker = ReleaseVelocity()
+                try {
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        val wasConsumed = c.isConsumed
+                        val now = frameCoords ?: break
+                        val position = now.localToRoot(c.position)
+                        for (sample in c.historical) tracker.add(sample.uptimeMillis, now.localToRoot(sample.position))
+                        tracker.add(c.uptimeMillis, position)
+                        if (!c.pressed) {
+                            if (dragging) {
+                                c.consume()
+                                state.moveDrag(position)
+                                released = c.changedToUpIgnoreConsumed() && !wasConsumed
+                            } else if (!wasConsumed && c.changedToUpIgnoreConsumed()) {
+                                c.consume()
+                                state.dismissOverlays()
+                            }
+                            break
+                        }
+                        if (wasConsumed) break
+                        if (!dragging && (c.position - down.position).getDistance() > slop) {
+                            dragging = true
+                            c.consume()
+                            val start = now.localToRoot(down.position)
+                            state.startDrag(DragSession(DragSource.Placed(item), null, anchor(now) - start, start))
+                        }
+                        if (dragging) {
+                            c.consume()
+                            state.moveDrag(position)
+                        }
+                    }
+                    if (dragging) {
+                        dragging = false
+                        if (released) state.endDrag(tracker.velocity()) else state.cancelDrag()
+                    }
+                } finally {
+                    if (dragging) state.cancelDrag()
                 }
             }
         }

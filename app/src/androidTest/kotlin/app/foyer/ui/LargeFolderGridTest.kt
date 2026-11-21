@@ -135,7 +135,7 @@ class LargeFolderGridTest {
                 assertNull(state.folderPanelBounds)
                 rule.onAllNodes(hasClickAction(), useUnmergedTree = true).fetchSemanticsNodes().forEach { node ->
                     // The folder background itself must have no open action.
-                    if (node.boundsInRoot == surface && node.config.contains(SemanticsActions.OnLongClick)) {
+                    if (node.boundsInRoot == state.folderBounds.getValue(1) && node.config.contains(SemanticsActions.OnLongClick)) {
                         assertFalse(node.config.contains(SemanticsActions.OnClick))
                     }
                 }
@@ -152,6 +152,8 @@ class LargeFolderGridTest {
                 .fetchSemanticsNode().config[SemanticsActions.CustomActions]
             rule.runOnIdle {
                 assertTrue(memberActions.first { it.label == rule.activity.getString(R.string.folder_actions) }.action())
+                assertEquals(state.folderSurfaceBounds.getValue(1), state.menu!!.anchor)
+                assertFalse(state.menu!!.onIcon)
             }
             rule.runOnIdle {
                 state.menu!!.actions.first { it.label == R.string.folder_shrink }.onClick()
