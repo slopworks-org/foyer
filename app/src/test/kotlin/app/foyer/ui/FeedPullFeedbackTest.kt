@@ -3,9 +3,9 @@ package app.foyer.ui
 import org.junit.Assert.*
 import org.junit.Test
 
-class ShadePullFeedbackTest {
+class FeedPullFeedbackTest {
     @Test fun reversalKeepsRoundShapeUntilFullyHidden() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         assertFalse(feedback.update(.9f, .1f))
         assertTrue(feedback.update(1f, .1f))
@@ -22,7 +22,7 @@ class ShadePullFeedbackTest {
     }
 
     @Test fun cancelledShortPullNeverArms() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         feedback.update(.5f, .1f)
         feedback.cancel()
@@ -30,7 +30,7 @@ class ShadePullFeedbackTest {
         assertFalse(feedback.armed)
     }
     @Test fun jitterAndHoldingDoNotCancelOrRepeatHaptic() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         assertFalse(feedback.update(.5f, .1f))
         assertFalse(feedback.update(.48f, .1f))
@@ -45,7 +45,7 @@ class ShadePullFeedbackTest {
     }
 
     @Test fun slowAccumulatedReversalCancelsFromPeak() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         feedback.update(2f, .1f)
         feedback.update(1.96f, .1f)
@@ -58,7 +58,7 @@ class ShadePullFeedbackTest {
         assertTrue(feedback.cancelled)
     }
     @Test fun hiddenCircleCanRestartAsSquareInSameTouch() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         assertTrue(feedback.update(1.2f, .1f))
         feedback.update(.6f, .1f)
@@ -75,7 +75,7 @@ class ShadePullFeedbackTest {
     }
 
     @Test fun downwardMovementDuringFadeWaitsForHiddenState() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         feedback.update(1.2f, .1f)
         feedback.update(.5f, .1f)
@@ -89,7 +89,7 @@ class ShadePullFeedbackTest {
     }
 
     @Test fun releaseDuringFadeCannotRestart() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         feedback.update(1.2f, .1f)
         feedback.update(.5f, .1f)
@@ -101,7 +101,7 @@ class ShadePullFeedbackTest {
     }
     @Test fun fastRepullStartsNewAnimationAndEmitsHapticBeforeRelease() {
         var haptics = 0
-        val feedback = ShadePullFeedback { haptics++ }
+        val feedback = FeedPullFeedback { haptics++ }
         feedback.begin()
         feedback.update(1.2f, .1f)
         val firstCycle = feedback.cycle
@@ -116,7 +116,7 @@ class ShadePullFeedbackTest {
         assertEquals(2, haptics)
     }
     @Test fun reversalRetractsButOrdinaryReleaseOnlyFades() {
-        val feedback = ShadePullFeedback()
+        val feedback = FeedPullFeedback()
         feedback.begin()
         feedback.update(1.2f, .1f)
         feedback.cancel()

@@ -50,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -119,6 +120,8 @@ import app.foyer.data.WidgetContent
 import app.foyer.system.FoyerWidgetHostView
 import app.foyer.system.WIDGET_INSET_DP
 import app.foyer.system.widgetSpan
+import kotlin.math.abs
+import kotlin.math.sign
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
@@ -158,8 +161,10 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
     val density = LocalDensity.current
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val hapticView = androidx.compose.ui.platform.LocalView.current
-    val shadeFeedback = remember(hapticView) {
-        ShadePullFeedback { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM) }
+    val threshold = with(density) { 48.dp.toPx() }
+    val tolerance = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop / threshold
+    val gesture = remember(hapticView, threshold, tolerance) {
+        FeedPullGesture(threshold, tolerance) { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM) }
     }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -199,7 +204,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
 
         Feed(
             state = state,
-            feedback = shadeFeedback,
+            gesture = gesture,
             layout = layout,
             cellW = cellW,
             cellH = cellH,
@@ -233,7 +238,9 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
                 },
         )
 
-        ShadePullIndicator(shadeFeedback)
+        FeedPullIndicator(gesture.shade, PullEdge.Top)
+        val dockAtRest by remember(state) { derivedStateOf { state.searchProgress.value == 0f } }
+        if (dockAtRest) FeedPullIndicator(gesture.search, PullEdge.Bottom, dockTotal)
 
         Dock(
             state = state,
@@ -256,7 +263,7 @@ fun Home(state: LauncherState, layout: HomeLayout, modifier: Modifier = Modifier
 @Composable
 private fun Feed(
     state: LauncherState,
-    feedback: ShadePullFeedback,
+    gesture: FeedPullGesture,
     layout: HomeLayout,
     cellW: Dp,
     cellH: Dp,
@@ -268,51 +275,46 @@ private fun Feed(
     modifier: Modifier,
 ) {
     val density = LocalDensity.current
-    // Pull down at the very top opens the shade. A third-party launcher cannot drag the shade
-    // itself (that is a private SystemUI channel for the recents provider), so the feed follows
-    // the finger instead and the decision is made on release: far enough and not pulled back
-    // up → open; otherwise spring back. Holding still does nothing.
-    val pullThreshold = with(density) { 48.dp.toPx() }
-    val reversalTolerance = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop / pullThreshold
     val pullScope = rememberCoroutineScope()
     val pullVisual = remember { Animatable(0f) }
-    val pull = remember(pullThreshold, reversalTolerance) {
+    val pull = remember(state, gesture) {
         object : NestedScrollConnection {
-            var pulled = 0f
+            val searchEnabled get() = state.drag == null && state.isHomeIdle
+            var release: PullRelease? = null
 
-            fun show() {
-                val p = pulled
-                feedback.update(p / pullThreshold, reversalTolerance)
-                pullScope.launch { pullVisual.snapTo(p) }
+            fun begin(downConsumed: Boolean) {
+                release = null
+                gesture.begin(!downConsumed && searchEnabled)
             }
 
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // Moving back up first undoes the pull before the feed scrolls again.
-                if (source == NestedScrollSource.UserInput && pulled > 0f && available.y < 0f) {
-                    val used = maxOf(available.y, -pulled)
-                    pulled += used
-                    show()
-                    return Offset(0f, used)
+            fun end(cancelled: Boolean) {
+                // Settle on pointer up even when the scrollable never dispatches a fling.
+                release = gesture.end(cancelled)
+                if (release != null) pullScope.launch {
+                    pullVisual.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium))
                 }
-                return Offset.Zero
             }
 
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y > 0f) {
-                    pulled += available.y
-                    show()
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
+            fun consume(delta: Float): Offset {
+                if (delta == 0f) return Offset.Zero
+                val distance = gesture.distance
+                pullScope.launch { pullVisual.snapTo(distance) }
+                return Offset(0f, delta)
             }
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                if (source == NestedScrollSource.UserInput) consume(gesture.unwind(available.y)) else Offset.Zero
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                if (source == NestedScrollSource.UserInput) consume(gesture.overscroll(available.y, searchEnabled)) else Offset.Zero
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                val p = pulled
-                if (p <= 0f) { feedback.cancel(); return Velocity.Zero }
-                pulled = 0f
-                if (feedback.armed && !feedback.cancelled && available.y > -500f) state.actions.expandNotifications()
-                feedback.cancel()
-                pullScope.launch { pullVisual.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)) }
+                val result = release ?: return Velocity.Zero
+                release = null
+                if (result.accepts(available.y)) when (result.edge) {
+                    PullEdge.Top -> state.actions.expandNotifications()
+                    PullEdge.Bottom -> if (searchEnabled) state.openSearch()
+                }
                 return available
             }
         }
@@ -378,15 +380,15 @@ private fun Feed(
             .onGloballyPositioned { state.viewportCoords = it }
             .pointerInput(pull) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                    pull.pulled = 0f
-                    feedback.begin()
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    pull.begin(down.isConsumed)
                     try {
-                        do {
-                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                        } while (event.changes.any { it.pressed })
+                        var event = awaitPointerEvent(PointerEventPass.Initial)
+                        while (event.changes.any { it.pressed }) event = awaitPointerEvent(PointerEventPass.Initial)
+                        // Compose delivers pointer cancellation as an already-consumed up.
+                        pull.end(cancelled = event.changes.any { it.isConsumed })
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        feedback.cancel()
+                        pull.end(cancelled = true)
                         throw cancelled
                     }
                 }
@@ -397,7 +399,7 @@ private fun Feed(
             .graphicsLayer {
                 // Rubber band: follows the finger, ever slower, ~18dp at the threshold.
                 val p = pullVisual.value
-                translationY = pullThreshold * 0.6f * (1f - exp(-p / pullThreshold))
+                translationY = sign(p) * gesture.threshold * 0.6f * (1f - exp(-abs(p) / gesture.threshold))
             },
     ) {
         Spacer(Modifier.height(topPad))
