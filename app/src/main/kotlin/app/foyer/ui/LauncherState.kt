@@ -342,7 +342,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
     /** Where (root px) a just-dropped item should spring from. Consumed by the item. */
     val dropOrigins = mutableStateMapOf<Long, Offset>()
 
-    private val layout get() = graph.layout.layout.value
+    internal val layout get() = graph.layout.layout.value
 
     /**
      * Search position while a finger drags it. Kept here synchronously: launching one snapTo
@@ -553,7 +553,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
             }
             add(MenuAction(R.string.action_add_to_home, MenuIcons.Add) { addToFeed(content) })
             if (content is AppContent) {
-                val freeSlot = (0 until HomeLayout.DOCK_SLOTS).firstOrNull { layout.dockSlotFree(it) }
+                val freeSlot = (0 until layout.dockSlots).firstOrNull { layout.dockSlotFree(it) }
                 if (freeSlot != null) add(MenuAction(R.string.action_add_to_dock, MenuIcons.Dock) { graph.layout.edit { Edits.add(it, content, freeSlot, 0, dock = true) } })
                 if (app != null) uninstallAction(app)?.let(::add)
             }
@@ -833,8 +833,8 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
                 if (s.isWidget || s.content is FolderContent) return null
                 val dc = dockCoords?.takeIf { it.isAttached } ?: return null
                 val local = dc.localPositionOf(root, p)
-                val slot = floor(local.x / (dc.size.width / HomeLayout.DOCK_SLOTS.toFloat())).toInt()
-                return DropTarget.Dock(slot.coerceIn(0, HomeLayout.DOCK_SLOTS - 1))
+                val slot = floor(local.x / (dc.size.width / layout.dockSlots.toFloat())).toInt()
+                return DropTarget.Dock(slot.coerceIn(0, layout.dockSlots - 1))
             }
             null -> return null
             DropLayer.Feed -> Unit
@@ -860,10 +860,10 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         val x: Int
         val y: Int
         if (s.isWidget) {
-            x = (local.x / cellW).roundToInt().coerceIn(0, HomeLayout.COLUMNS - s.w)
+            x = (local.x / cellW).roundToInt().coerceIn(0, layout.columns - s.w)
             y = (local.y / cellH).roundToInt()
         } else {
-            x = floor(local.x / cellW - (s.w - 1) / 2f).toInt().coerceIn(0, HomeLayout.COLUMNS - s.w)
+            x = floor(local.x / cellW - (s.w - 1) / 2f).toInt().coerceIn(0, layout.columns - s.w)
             y = floor(local.y / cellH - (s.h - 1) / 2f).toInt()
         }
         if (y < 0) return null
@@ -930,7 +930,7 @@ class LauncherState(val graph: Graph, private val scope: CoroutineScope, val act
         scope.launch {
             val missing = graph.apps.missingFolderApps(listOf(key))
             graph.layout.editChange { current ->
-                val (x, y) = if (toDock) ((0 until HomeLayout.DOCK_SLOTS).firstOrNull { current.dockSlotFree(it) } ?: -1) to 0
+                val (x, y) = if (toDock) ((0 until current.dockSlots).firstOrNull { current.dockSlotFree(it) } ?: -1) to 0
                     else current.firstFree(1, 1)
                 val result = Edits.planTransferApp(current, key, sourceItem, sourceFolder, targetFolder, index, x, y, toDock,
                     key !in missing && (key.pkg to key.user) !in graph.apps.removedPackages, sourceEntry, incomingId)

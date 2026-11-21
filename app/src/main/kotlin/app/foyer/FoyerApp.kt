@@ -74,7 +74,10 @@ class Graph(private val context: Context) {
     val widgetManager: AppWidgetManager = AppWidgetManager.getInstance(context)
 
     /** Last measured feed cell size, used to size widgets that are added from outside the UI. */
-    var cellSizePx: Pair<Float, Float> = context.resources.displayMetrics.let { it.widthPixels / 5f to it.widthPixels / 5f * 1.18f }
+    var cellSizePx: Pair<Float, Float> = context.resources.displayMetrics.let {
+        val width = it.widthPixels / layout.layout.value.columns.toFloat()
+        width to width * 1.18f
+    }
 
     private val aliases = layout.layout.map { it.aliases }.distinctUntilChanged()
 

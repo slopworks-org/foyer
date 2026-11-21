@@ -87,7 +87,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.res.stringResource
 import app.foyer.R
-import app.foyer.data.HomeLayout
+import app.foyer.data.Edits
 import app.foyer.data.Settings
 import app.foyer.system.widgetSpan
 import app.foyer.WidgetEntry
@@ -491,8 +491,8 @@ private fun WidgetPreview(state: LauncherState, info: AppWidgetProviderInfo, onP
             }.getOrNull()
         }
     }
-    val span = remember(info, state.cellW, state.cellH, density) {
-        widgetSpan(info, state.cellW, state.cellH, context.resources.displayMetrics.density)
+    val span = remember(state.layout.columns, info, state.cellW, state.cellH, density) {
+        widgetSpan(info, state.cellW, state.cellH, context.resources.displayMetrics.density, state.layout.columns)
     }
     Column(
         Modifier
@@ -614,11 +614,14 @@ private fun SettingsSession(state: LauncherState, settings: Settings) {
                         SettingSwitch(stringResource(R.string.settings_app_labels), stringResource(R.string.settings_app_labels_summary), settings.showAppLabels) {
                             edit { s -> s.copy(showAppLabels = it) }
                         }
+                        SettingSwitch(stringResource(R.string.settings_medium_grid), stringResource(R.string.settings_grid_sizes), settings.columns == 4) { medium ->
+                            state.graph.layout.edit { Edits.setColumns(it, if (medium) 4 else 5) }
+                        }
                         UpdatePreference(settings.updateChecks == true, { updatesOpen = true }, actions.choose)
                         SettingRow(stringResource(R.string.action_wallpaper_style), null) { state.actions.wallpaper() }
                     }
                 }
-                Text(stringResource(R.string.settings_footer, HomeLayout.COLUMNS), color = colors.onSurfaceVariant,
+                Text(stringResource(R.string.settings_footer, state.layout.columns), color = colors.onSurfaceVariant,
                     fontSize = 12.sp, modifier = Modifier.padding(16.dp))
             }
         }

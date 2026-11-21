@@ -40,6 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -356,7 +357,7 @@ private fun WebSearchRow(onClick: () -> Unit) {
 private fun AllApps(state: LauncherState, searchable: Searchable) {
     val apps = remember(searchable) { searchable.apps.values.sortedWith(compareBy(java.text.Collator.getInstance()) { it.label }) }
     LazyVerticalGrid(
-        columns = GridCells.Fixed(5),
+        columns = GridCells.Fixed(state.graph.layout.layout.collectAsState().value.columns),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
         modifier = Modifier.fillMaxSize(),
     ) {

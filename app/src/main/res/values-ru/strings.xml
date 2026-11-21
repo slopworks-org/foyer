@@ -28,7 +28,9 @@
     <string name="settings_default_home_title">Foyer не выбран главным экраном</string>
     <string name="settings_default_home_summary">Выберите Foyer, чтобы открывать его жестом перехода на главный экран.</string>
     <string name="settings_default_home_action">Сделать по умолчанию</string>
-    <string name="settings_footer">Foyer · сетка %1$d колонок · работает без сети</string>
+    <string name="settings_medium_grid">Средняя сетка</string>
+    <string name="settings_grid_sizes">Средняя сетка: 4 столбца. Мелкая: 5.</string>
+    <string name="settings_footer">Foyer · столбцов: %1$d · работает без сети</string>
 
     <string name="widget_unavailable">Виджет недоступен</string>
     <string name="pinned_to_home">«%1$s» на главном экране</string>

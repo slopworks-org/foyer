@@ -41,8 +41,10 @@ class PinRequestActivity : Activity() {
                     request.accept(Bundle().apply { putInt(AppWidgetManager.EXTRA_APPWIDGET_ID, id) })
                 ) {
                     val (cw, ch) = graph.cellSizePx
-                    val span = widgetSpan(info, cw, ch, resources.displayMetrics.density)
-                    graph.layout.edit { Edits.addFirstFree(it, WidgetContent(id, info.provider.flattenToString()), span.w, span.h) }
+                    graph.layout.edit { layout ->
+                        val span = widgetSpan(info, cw, ch, resources.displayMetrics.density, layout.columns)
+                        Edits.addFirstFree(layout, WidgetContent(id, info.provider.flattenToString()), span.w, span.h)
+                    }
                 } else {
                     graph.widgetHost.deleteAppWidgetId(id)
                 }
